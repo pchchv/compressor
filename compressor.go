@@ -24,3 +24,15 @@ type File struct {
 	// Not used for files that have no content (directories and links).
 	Open func() (io.ReadCloser, error)
 }
+
+// FromDiskOptions specifies options for gathering files from the disk.
+type FromDiskOptions struct {
+	// If true, symbolic links will be dereferenced,
+	// that is, the link will not be added as a link,
+	// but what the link points to will be added as a file.
+	FollowSymolicLinks bool
+
+	// If true, some attributes of the file will not be saved.
+	// The name, size, type and permissions will be saved.
+	ClearAttributes bool
+}
