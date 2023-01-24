@@ -59,3 +59,14 @@ type ArchiverAsync interface {
 	// Close the file channel after all files have been sent.
 	ArchiveAsync(ctx context.Context, output io.Writer, files <-chan File) error
 }
+
+// Extractor can extract files from an archive.
+type Extractor interface {
+	// Extract reads the files at pathsInArchive from sourceArchive.
+	// If pathsInArchive is nil, all files are extracted without restriction.
+	// If pathsInArchive is empty, the files are not extracted.
+	// If paths refer to a directory, all files in it are extracted.
+	// Extracted files are passed to the handleFile callback for processing.
+	// The context cancellation must be honored.
+	Extract(ctx context.Context, sourceArchive io.Reader, pathsInArchive []string, handleFile FileHandler) error
+}
