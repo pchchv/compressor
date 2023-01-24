@@ -200,3 +200,68 @@ func TestNameOnDiskToNameInArchive(t *testing.T) {
 		}
 	}
 }
+
+func TestFileIsIncluded(t *testing.T) {
+	for i, tc := range []struct {
+		included  []string
+		candidate string
+		expect    bool
+	}{
+		{
+			included:  []string{"a"},
+			candidate: "a",
+			expect:    true,
+		},
+		{
+			included:  []string{"a", "b", "a/b"},
+			candidate: "b",
+			expect:    true,
+		},
+		{
+			included:  []string{"a", "b", "c/d"},
+			candidate: "c/d/e",
+			expect:    true,
+		},
+		{
+			included:  []string{"a"},
+			candidate: "a/b/c",
+			expect:    true,
+		},
+		{
+			included:  []string{"a"},
+			candidate: "aa/b/c",
+			expect:    false,
+		},
+		{
+			included:  []string{"a", "b", "c/d"},
+			candidate: "b/c",
+			expect:    true,
+		},
+		{
+			included:  []string{"a/"},
+			candidate: "a",
+			expect:    false,
+		},
+		{
+			included:  []string{"a/"},
+			candidate: "a/",
+			expect:    true,
+		},
+		{
+			included:  []string{"a"},
+			candidate: "a/",
+			expect:    true,
+		},
+		{
+			included:  []string{"a/b"},
+			candidate: "a/",
+			expect:    false,
+		},
+	} {
+		actual := fileIsIncluded(tc.included, tc.candidate)
+		if actual != tc.expect {
+			t.Errorf("Test %d (included=%v candidate=%v): expected %t but got %t",
+				i, tc.included, tc.candidate, tc.expect, actual)
+		}
+	}
+}
