@@ -47,6 +47,12 @@ type FromDiskOptions struct {
 // noAttrFileInfo is used to zero some file attributes.
 type noAttrFileInfo struct{ fs.FileInfo }
 
+// skipList keeps a list of non-intersecting paths as long as its add method is used.
+// Identical items are rejected, more specific paths are replaced with broader ones,
+// and more specific paths won't be added when a broader one already exists in the list.
+// Slashes are ignored.
+type skipList []string
+
 // FileHandler is a callback function that is used to handle files when reading them from an archive.
 // It is similar to fs.WalkDirFunc. Handler functions that open files must not overlap or execute at the same time,
 // since files can be read from the same sequential thread. Always close the file before returning it.
@@ -69,6 +75,34 @@ func (noAttrFileInfo) ModTime() time.Time {
 
 func (noAttrFileInfo) Sys() interface{} {
 	return nil
+}
+
+func (s *skipList) add(dir string) {
+	var dontAdd bool
+	trimmedDir := strings.TrimSuffix(dir, "/")
+
+	for i := 0; i < len(*s); i++ {
+		trimmedElem := strings.TrimSuffix((*s)[i], "/")
+
+		if trimmedDir == trimmedElem {
+			return
+		}
+
+		// don't add dir if a broader path already exists in the list
+		if strings.HasPrefix(trimmedDir, trimmedElem+"/") {
+			dontAdd = true
+			continue
+		}
+
+		// if dir is broader than a path in the list, remove more specific path in list
+		if strings.HasPrefix(trimmedElem, trimmedDir+"/") {
+			*s = append((*s)[:i], (*s)[i+1:]...)
+			i--
+		}
+	}
+	if !dontAdd {
+		*s = append(*s, dir)
+	}
 }
 
 // FilesFromDisk returns a list of files by traversing the directories in a given filename map.
