@@ -70,3 +70,9 @@ type Extractor interface {
 	// The context cancellation must be honored.
 	Extract(ctx context.Context, sourceArchive io.Reader, pathsInArchive []string, handleFile FileHandler) error
 }
+
+// Inserter can insert files into an existing archive.
+type Inserter interface {
+	// Context cancellation must be honored.
+	Insert(ctx context.Context, archive io.ReadWriteSeeker, files []File) error
+}
