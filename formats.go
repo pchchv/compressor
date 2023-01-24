@@ -2,6 +2,7 @@ package compressor
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 )
@@ -24,6 +25,19 @@ type rewindReader struct {
 	io.Reader
 	buf       *bytes.Buffer
 	bufReader io.Reader
+}
+
+// CompressedArchive combines a compression format on top of an archive format (e.g. "tar.gz")
+// and provides both functionalities in a single type.
+// This ensures that archive functions are wrapped by compressors and decompressors.
+// However, compressed archives have some limitations.
+// For example, files cannot be inserted/appended because of complexities with
+// modifying existing compression state.
+// As this type is intended to compose compression and archive formats,
+// both must be specified for the value to be valid, or its methods will return errors.
+type CompressedArchive struct {
+	Compression
+	Archival
 }
 
 // Matched returns true if a match was made by either name or stream.
@@ -87,6 +101,96 @@ func (rr *rewindReader) reader() io.Reader {
 		}
 	}
 	return io.MultiReader(bytes.NewReader(rr.buf.Bytes()), rr.Reader)
+}
+
+// Name returns a concatenation of the archive format name and the compression format name.
+func (caf CompressedArchive) Name() string {
+	var name string
+
+	if caf.Compression == nil && caf.Archival == nil {
+		panic("missing both compression and archive formats")
+	}
+
+	if caf.Archival != nil {
+		name += caf.Archival.Name()
+	}
+
+	if caf.Compression != nil {
+		name += caf.Compression.Name()
+	}
+
+	return name
+}
+
+// Match matches if the input matches both the compression and archive format.
+func (caf CompressedArchive) Match(filename string, stream io.Reader) (MatchResult, error) {
+	var conglomerate MatchResult
+
+	if caf.Compression != nil {
+		matchResult, err := caf.Compression.Match(filename, stream)
+		if err != nil {
+			return MatchResult{}, err
+		}
+
+		if !matchResult.Matched() {
+			return matchResult, nil
+		}
+
+		// wrap the reader with a decompressor, to match the archive, when reading the stream
+		rc, err := caf.Compression.OpenReader(stream)
+		if err != nil {
+			return matchResult, err
+		}
+
+		defer rc.Close()
+		stream = rc
+
+		conglomerate = matchResult
+	}
+
+	if caf.Archival != nil {
+		matchResult, err := caf.Archival.Match(filename, stream)
+		if err != nil {
+			return MatchResult{}, err
+		}
+
+		if !matchResult.Matched() {
+			return matchResult, nil
+		}
+
+		conglomerate.ByName = conglomerate.ByName || matchResult.ByName
+		conglomerate.ByStream = conglomerate.ByStream || matchResult.ByStream
+	}
+
+	return conglomerate, nil
+}
+
+// Archive adds files to the output archive while compressing the result.
+func (caf CompressedArchive) Archive(ctx context.Context, output io.Writer, files []File) error {
+	if caf.Compression != nil {
+		wc, err := caf.Compression.OpenWriter(output)
+		if err != nil {
+			return err
+		}
+
+		defer wc.Close()
+		output = wc
+	}
+	return caf.Archival.Archive(ctx, output, files)
+}
+
+// Extract reads files out of an archive while decompressing the results.
+func (caf CompressedArchive) Extract(ctx context.Context, sourceArchive io.Reader, pathsInArchive []string, handleFile FileHandler) error {
+	if caf.Compression != nil {
+		rc, err := caf.Compression.OpenReader(sourceArchive)
+		if err != nil {
+			return err
+		}
+
+		defer rc.Close()
+		sourceArchive = rc
+	}
+	return caf.Archival.(Extractor).Extract(ctx, sourceArchive, pathsInArchive, handleFile)
 }
 
 func identifyOne(format Format, filename string, stream *rewindReader, comp Compression) (mr MatchResult, err error) {
