@@ -73,3 +73,23 @@ func TestTrimTopDir(t *testing.T) {
 		})
 	}
 }
+
+func TestTopDir(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  string
+	}{
+		{input: "a/b/c", want: "a"},
+		{input: "a", want: "a"},
+		{input: "abc/def", want: "abc"},
+		{input: "/abc/def", want: "abc"},
+	} {
+		tc := tc
+		t.Run(tc.input, func(t *testing.T) {
+			got := topDir(tc.input)
+			if got != tc.want {
+				t.Errorf("want: '%s', got: '%s')", tc.want, got)
+			}
+		})
+	}
+}
