@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -39,6 +40,9 @@ type CompressedArchive struct {
 	Compression
 	Archival
 }
+
+// Registered formats.
+var formats = make(map[string]Format)
 
 // Matched returns true if a match was made by either name or stream.
 func (mr MatchResult) Matched() bool {
@@ -191,6 +195,72 @@ func (caf CompressedArchive) Extract(ctx context.Context, sourceArchive io.Reade
 		sourceArchive = rc
 	}
 	return caf.Archival.(Extractor).Extract(ctx, sourceArchive, pathsInArchive, handleFile)
+}
+
+// Identify goes through the registered formats and returns the one that matches the given file name and/or stream.
+// It is capable of identifying compressed files (.gz, .xz...),
+// archive files (.tar, .zip...) and compressed archive files (tar.gz, tar.bz2...).
+// The returned Format value can be checked for type to determine its capabilities.
+// If no suitable formats are found, a special error fmt.Errorf("no formats matched") is returned.
+// The returned io.Reader will always be non-nil and will read from the same point as the passed reader,
+// it should be used instead of the input stream after the Identify() call,
+// because it saves and re-reads bytes that have already been read in the Identify process.
+func Identify(filename string, stream io.Reader) (Format, io.Reader, error) {
+	var compression Compression
+	var archival Archival
+
+	rewindableStream := newRewindReader(stream)
+
+	// try compression format first, since that's the outer "layer"
+	for name, format := range formats {
+		cf, isCompression := format.(Compression)
+		if !isCompression {
+			continue
+		}
+
+		matchResult, err := identifyOne(format, filename, rewindableStream, nil)
+		if err != nil {
+			return nil, rewindableStream.reader(), fmt.Errorf("matching %s: %w", name, err)
+		}
+
+		// if matched, wrap input stream with decompression
+		// so we can see if it contains an archive within
+		if matchResult.Matched() {
+			compression = cf
+			break
+		}
+	}
+
+	// try archive format next
+	for name, format := range formats {
+		af, isArchive := format.(Archival)
+		if !isArchive {
+			continue
+		}
+
+		matchResult, err := identifyOne(format, filename, rewindableStream, compression)
+		if err != nil {
+			return nil, rewindableStream.reader(), fmt.Errorf("matching %s: %w", name, err)
+		}
+
+		if matchResult.Matched() {
+			archival = af
+			break
+		}
+	}
+
+	// the stream should be rewound by identifyOne
+	bufferedStream := rewindableStream.reader()
+	switch {
+	case compression != nil && archival == nil:
+		return compression, bufferedStream, nil
+	case compression == nil && archival != nil:
+		return archival, bufferedStream, nil
+	case compression != nil && archival != nil:
+		return CompressedArchive{compression, archival}, bufferedStream, nil
+	default:
+		return nil, bufferedStream, fmt.Errorf("no formats matched")
+	}
 }
 
 func identifyOne(format Format, filename string, stream *rewindReader, comp Compression) (mr MatchResult, err error) {
