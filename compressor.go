@@ -45,6 +45,8 @@ type FromDiskOptions struct {
 // noAttrFileInfo is used to zero some file attributes.
 type noAttrFileInfo struct{ fs.FileInfo }
 
+func (f File) Stat() (fs.FileInfo, error) { return f.FileInfo, nil }
+
 // FilesFromDisk returns a list of files by traversing the directories in a given filename map.
 // The keys are the names on disk, and the values are the associated names in the archive.
 // Map keys pointing to directories on disk will be looked up and added to the archive recursively,
