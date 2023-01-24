@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // File abstraction for interacting with archives.
@@ -46,6 +47,19 @@ type FromDiskOptions struct {
 type noAttrFileInfo struct{ fs.FileInfo }
 
 func (f File) Stat() (fs.FileInfo, error) { return f.FileInfo, nil }
+
+// Mode preserves only the type and permission bits.
+func (no noAttrFileInfo) Mode() fs.FileMode {
+	return no.FileInfo.Mode() & (fs.ModeType | fs.ModePerm)
+}
+
+func (noAttrFileInfo) ModTime() time.Time {
+	return time.Time{}
+}
+
+func (noAttrFileInfo) Sys() interface{} {
+	return nil
+}
 
 // FilesFromDisk returns a list of files by traversing the directories in a given filename map.
 // The keys are the names on disk, and the values are the associated names in the archive.
