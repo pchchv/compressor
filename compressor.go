@@ -183,6 +183,41 @@ func nameOnDiskToNameInArchive(nameOnDisk, rootOnDisk, rootInArchive string) str
 	return path.Join(rootInArchive, filepath.ToSlash(truncPath))
 }
 
+// openAndCopyFile opens file for reading, copies its contents to w, then closes file.
+func openAndCopyFile(file File, w io.Writer) error {
+	fileReader, err := file.Open()
+	if err != nil {
+		return err
+	}
+
+	defer fileReader.Close()
+
+	_, err = io.Copy(w, fileReader)
+	return err
+}
+
+// fileIsIncluded returns true if the filename is included in the filenameList,
+// i.e. it is in the list, its parent folder/path is in the list, or the list is nil.
+func fileIsIncluded(filenameList []string, filename string) bool {
+	// include all files if there is no specific list
+	if filenameList == nil {
+		return true
+	}
+
+	for _, fn := range filenameList {
+		// exact matches are of course included
+		if filename == fn {
+			return true
+		}
+
+		// also consider the file included if its parent folder/path is in the list
+		if strings.HasPrefix(filename, strings.TrimSuffix(fn, "/")+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func isSymlink(info fs.FileInfo) bool {
 	return info.Mode()&os.ModeSymlink != 0
 }
