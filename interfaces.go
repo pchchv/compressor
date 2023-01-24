@@ -22,6 +22,13 @@ type Format interface {
 	Match(filename string, stream io.Reader) (MatchResult, error)
 }
 
+// Archival is an archival format with both archive and extract methods.
+type Archival interface {
+	Format
+	Archiver
+	Extractor
+}
+
 // Compressor can compress data by wrapping a writer.
 type Compressor interface {
 	// OpenWriter wraps w with a new writer that compresses what is written.
