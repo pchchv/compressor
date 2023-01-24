@@ -2,6 +2,7 @@ package compressor
 
 import (
 	"bytes"
+	"errors"
 	"io"
 )
 
@@ -86,4 +87,30 @@ func (rr *rewindReader) reader() io.Reader {
 		}
 	}
 	return io.MultiReader(bytes.NewReader(rr.buf.Bytes()), rr.Reader)
+}
+
+func identifyOne(format Format, filename string, stream *rewindReader, comp Compression) (mr MatchResult, err error) {
+	defer stream.rewind()
+
+	// if the search is in a compressed format, wrap the stream in a reader
+	// that can decompress it to match the "internal" format
+	// (create a new reader every time we do a match, because we reset/search the stream every time,
+	// and it can mess up the state of the compression reader if we don't discard it too)
+	if comp != nil {
+		decompressedStream, openErr := comp.OpenReader(stream)
+		if openErr != nil {
+			return MatchResult{}, openErr
+		}
+		defer decompressedStream.Close()
+		mr, err = format.Match(filename, decompressedStream)
+	} else {
+		mr, err = format.Match(filename, stream)
+	}
+
+	// if the error is EOF - ignore it.
+	// This means that the input file is small.
+	if errors.Is(err, io.EOF) {
+		err = nil
+	}
+	return mr, err
 }
