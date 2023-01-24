@@ -1,6 +1,9 @@
 package compressor
 
-import "io"
+import (
+	"context"
+	"io"
+)
 
 // The format is either an archive or a compression format.
 type Format interface {
@@ -38,4 +41,21 @@ type Compression interface {
 	Format
 	Compressor
 	Decompressor
+}
+
+// Archiver can create a new archive.
+type Archiver interface {
+	// Archive writes an archive file to output with the given files.
+	// Context cancellation must be honored.
+	Archive(ctx context.Context, output io.Writer, files []File) error
+}
+
+// ArchiverAsync is an Archiver that can also create archives asynchronously,
+// pumping files into the channel as they are discovered.
+type ArchiverAsync interface {
+	Archiver
+
+	// Use ArchiveAsync if you cannot pre-assemble a list of all files for the archive.
+	// Close the file channel after all files have been sent.
+	ArchiveAsync(ctx context.Context, output io.Writer, files <-chan File) error
 }
