@@ -1,6 +1,7 @@
 package compressor
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -45,6 +46,15 @@ type FromDiskOptions struct {
 
 // noAttrFileInfo is used to zero some file attributes.
 type noAttrFileInfo struct{ fs.FileInfo }
+
+// FileHandler is a callback function that is used to handle files when reading them from an archive.
+// It is similar to fs.WalkDirFunc. Handler functions that open files must not overlap or execute at the same time,
+// since files can be read from the same sequential thread. Always close the file before returning it.
+// If a special error value of fs.SkipDir is returned, the file directory (or the file itself,
+// if it is a directory) will not be passed. Note that since the contents of an archive are not necessarily ordered,
+// skipping directories requires memory, and skipping a large number of directories can lead to memory overruns.
+// Any other error returned will abort the pass.
+type FileHandler func(ctx context.Context, f File) error
 
 func (f File) Stat() (fs.FileInfo, error) { return f.FileInfo, nil }
 
