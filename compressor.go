@@ -198,6 +198,19 @@ func trimTopDir(dir string) string {
 	return dir
 }
 
+// topDir returns the top or first directory in the path.
+// It expects a forward-slashed path.
+// For example, "a/b/c" => "a".
+func topDir(dir string) string {
+	if len(dir) > 0 && dir[0] == '/' {
+		dir = dir[1:]
+	}
+	if pos := strings.Index(dir, "/"); pos >= 0 {
+		return dir[:pos]
+	}
+	return dir
+}
+
 // nameOnDiskToNameInArchive converts the file name from disk to the name in the archive,
 // following the rules defined by FilesFromDisk. nameOnDisk is the full name of the file on disk,
 // which is expected to be prefixed by rootOnDisk and will be placed in the rootInArchive folder in the archive.
