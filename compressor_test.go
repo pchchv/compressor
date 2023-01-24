@@ -53,3 +53,23 @@ func TestSkipList(t *testing.T) {
 		}
 	}
 }
+
+func TestTrimTopDir(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  string
+	}{
+		{input: "a/b/c", want: "b/c"},
+		{input: "a", want: "a"},
+		{input: "abc/def", want: "def"},
+		{input: "/abc/def", want: "def"},
+	} {
+		tc := tc
+		t.Run(tc.input, func(t *testing.T) {
+			got := trimTopDir(tc.input)
+			if got != tc.want {
+				t.Errorf("want: '%s', got: '%s')", tc.want, got)
+			}
+		})
+	}
+}
