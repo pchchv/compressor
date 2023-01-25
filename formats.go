@@ -42,8 +42,15 @@ type CompressedArchive struct {
 	Archival
 }
 
-// Registered formats.
-var formats = make(map[string]Format)
+var (
+	// Registered formats.
+	formats = make(map[string]Format)
+
+	// Interface guards
+	_ Format    = (*CompressedArchive)(nil)
+	_ Archiver  = (*CompressedArchive)(nil)
+	_ Extractor = (*CompressedArchive)(nil)
+)
 
 // Matched returns true if a match was made by either name or stream.
 func (mr MatchResult) Matched() bool {
@@ -78,8 +85,8 @@ func (rr *rewindReader) Read(p []byte) (n int, err error) {
 
 	// everything that was read should be written to the buffer, even if there was an error
 	if nr > 0 {
-		if nw, errw := rr.buf.Write(p[n : n+nr]); errw != nil {
-			return nw, errw
+		if nw, err := rr.buf.Write(p[n : n+nr]); err != nil {
+			return nw, err
 		}
 	}
 
@@ -288,7 +295,9 @@ func identifyOne(format Format, filename string, stream *rewindReader, comp Comp
 		if openErr != nil {
 			return MatchResult{}, openErr
 		}
+
 		defer decompressedStream.Close()
+
 		mr, err = format.Match(filename, decompressedStream)
 	} else {
 		mr, err = format.Match(filename, stream)
@@ -299,6 +308,7 @@ func identifyOne(format Format, filename string, stream *rewindReader, comp Comp
 	if errors.Is(err, io.EOF) {
 		err = nil
 	}
+
 	return mr, err
 }
 
