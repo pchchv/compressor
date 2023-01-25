@@ -2,7 +2,11 @@ package compressor
 
 import (
 	"archive/zip"
+	"context"
+	"fmt"
 	"io"
+	"path"
+	"strings"
 
 	"github.com/dsnet/compress/bzip2"
 	"github.com/klauspost/compress/zstd"
@@ -31,6 +35,44 @@ const (
 	ZipMethodZstd  = 93
 	ZipMethodXz    = 95
 )
+
+// compressedFormats is an incomplete set of file extensions with lowercase letters
+// for formats that are normally already compressed.
+// Compressing already compressed files is inefficient.
+var compressedFormats = map[string]struct{}{
+	".7z":   {},
+	".avi":  {},
+	".br":   {},
+	".bz2":  {},
+	".cab":  {},
+	".docx": {},
+	".gif":  {},
+	".gz":   {},
+	".jar":  {},
+	".jpeg": {},
+	".jpg":  {},
+	".lz":   {},
+	".lz4":  {},
+	".lzma": {},
+	".m4v":  {},
+	".mov":  {},
+	".mp3":  {},
+	".mp4":  {},
+	".mpeg": {},
+	".mpg":  {},
+	".png":  {},
+	".pptx": {},
+	".rar":  {},
+	".sz":   {},
+	".tbz2": {},
+	".tgz":  {},
+	".tsz":  {},
+	".txz":  {},
+	".xlsx": {},
+	".xz":   {},
+	".zip":  {},
+	".zipx": {},
+}
 
 func init() {
 	RegisterFormat(Zip{}) // Not implement! In progress...
@@ -69,4 +111,51 @@ func init() {
 		}
 		return io.NopCloser(xr)
 	})
+}
+
+func (z Zip) Name() string {
+	return ".zip"
+}
+
+func (z Zip) archiveOneFile(ctx context.Context, zw *zip.Writer, idx int, file File) error {
+	if err := ctx.Err(); err != nil {
+		return err // honor context cancellation
+	}
+
+	hdr, err := zip.FileInfoHeader(file)
+	if err != nil {
+		return fmt.Errorf("getting info for file %d: %s: %w", idx, file.Name(), err)
+	}
+	hdr.Name = file.FileName // complete path, since FileInfoHeader() only has base name
+
+	// customize header based on file properties
+	if file.IsDir() {
+		if !strings.HasSuffix(hdr.Name, "/") {
+			hdr.Name += "/" // required
+		}
+		hdr.Method = zip.Store
+	} else if z.SelectiveCompression {
+		// only enable compression on compressable files
+		ext := strings.ToLower(path.Ext(hdr.Name))
+		if _, ok := compressedFormats[ext]; ok {
+			hdr.Method = zip.Store
+		} else {
+			hdr.Method = z.Compression
+		}
+	}
+
+	w, err := zw.CreateHeader(hdr)
+	if err != nil {
+		return fmt.Errorf("creating header for file %d: %s: %w", idx, file.Name(), err)
+	}
+
+	// directories have no file body
+	if file.IsDir() {
+		return nil
+	}
+	if err := openAndCopyFile(file, w); err != nil {
+		return fmt.Errorf("writing file %d: %s: %w", idx, file.Name(), err)
+	}
+
+	return nil
 }
