@@ -20,7 +20,7 @@ type File struct {
 	Header interface{}
 
 	// The path of the file as it appears in the archive.
-	Name string
+	FileName string
 
 	// For symbolic and hard links.
 	// Not all archive formats are supported.
@@ -166,7 +166,7 @@ func FilesFromDisk(options *FromDiskOptions, filenames map[string]string) (files
 
 			file := File{
 				FileInfo:   info,
-				Name:       nameInArchive,
+				FileName:   nameInArchive,
 				LinkTarget: linkTarget,
 				Open: func() (io.ReadCloser, error) {
 					return os.Open(filename)
