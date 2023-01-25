@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // MatchResult returns true if the format was found either by name, by stream, or by both parameters.
@@ -195,6 +196,18 @@ func (caf CompressedArchive) Extract(ctx context.Context, sourceArchive io.Reade
 		sourceArchive = rc
 	}
 	return caf.Archival.(Extractor).Extract(ctx, sourceArchive, pathsInArchive, handleFile)
+}
+
+// RegisterFormat registers the format.
+// It must be called during init.
+// Duplicate formats by name are not allowed and will cause a panic.
+func RegisterFormat(format Format) {
+	name := strings.Trim(strings.ToLower(format.Name()), ".")
+	if _, ok := formats[name]; ok {
+		panic("format " + name + " is already registered")
+	}
+
+	formats[name] = format
 }
 
 // Identify goes through the registered formats and returns the one that matches the given file name and/or stream.
