@@ -2,8 +2,9 @@ package compressor
 
 import (
 	"bytes"
-	"fmt"
+	"context"
 	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -75,10 +76,42 @@ func TestIdentifyCanAssessSmallOrNoContent(t *testing.T) {
 				t.Errorf("no Format expected for non archive and not compressed stream: found Format= %v", got.Name())
 				return
 			}
-			if err != fmt.Errorf("no formats matched") {
+			if err.Error() != "no formats matched" {
 				t.Fatalf("ErrNoMatch expected for non archive and not compressed stream: err :=%#v", err)
 				return
 			}
 		})
 	}
+}
+
+func TestIdentifyAndOpenZip(t *testing.T) {
+	f, err := os.Open("data/test.zip")
+	checkErr(t, err, "opening zip")
+	defer f.Close()
+
+	format, reader, err := Identify("test.zip", f)
+	checkErr(t, err, "identifying zip")
+	if format.Name() != ".zip" {
+		t.Fatalf("unexpected format found: expected=.zip actual:%s", format.Name())
+	}
+
+	err = format.(Extractor).Extract(context.Background(), reader, nil, func(ctx context.Context, f File) error {
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		defer rc.Close()
+		_, err = io.ReadAll(rc)
+		return err
+	})
+	checkErr(t, err, "extracting zip")
+}
+
+func checkErr(t *testing.T, err error, msgFmt string, args ...interface{}) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	args = append(args, err)
+	t.Fatalf(msgFmt+": %s", args...)
 }
