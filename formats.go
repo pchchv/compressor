@@ -301,3 +301,28 @@ func identifyOne(format Format, filename string, stream *rewindReader, comp Comp
 	}
 	return mr, err
 }
+
+// readAtMost reads at most n bytes from the stream.
+// A nil, empty or short stream is not an error.
+// The returned slice of bytes may have length < n without error.
+func readAtMost(stream io.Reader, n int) ([]byte, error) {
+	if stream == nil || n <= 0 {
+		return []byte{}, nil
+	}
+
+	buf := make([]byte, n)
+	nr, err := io.ReadFull(stream, buf)
+
+	// If the error is EOF (the stream was empty) or UnexpectedEOF (the stream had less than n)
+	// ignore these errors because it is not necessary to read all n bytes,
+	// so an empty or short stream is not an error.
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		err = nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return buf[:nr], nil
+}
