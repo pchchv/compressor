@@ -1,20 +1,12 @@
 package compressor
 
 import (
+	"bytes"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
 )
-
-// TestCompression
-// checkErr
-// TestIdentifyDoesNotMatchContentFromTrimmedKnownHeaderHaving0Suffix
-// TestIdentifyCanAssessSmallOrNoContent
-// compress
-// archive
-// newTmpTextFile
-// TestIdentifyFindFormatByStreamContent
-// TestIdentifyAndOpenZip
 
 func TestRewindReader(t *testing.T) {
 	data := "the header\nthe body\n"
@@ -46,5 +38,47 @@ func TestRewindReader(t *testing.T) {
 
 	if string(buf) != data {
 		t.Fatalf("expected '%s' but got '%s'", string(data), string(buf))
+	}
+}
+
+func TestIdentifyCanAssessSmallOrNoContent(t *testing.T) {
+	type args struct {
+		stream io.ReadSeeker
+	}
+	tests := []struct {
+		name string
+		args args
+	}{
+		{
+			name: "should return nomatch for an empty stream",
+			args: args{
+				stream: bytes.NewReader([]byte{}),
+			},
+		},
+		{
+			name: "should return nomatch for a stream with content size less than known header",
+			args: args{
+				stream: bytes.NewReader([]byte{'a'}),
+			},
+		},
+		{
+			name: "should return nomatch for a stream with content size greater then known header size and not supported format",
+			args: args{
+				stream: bytes.NewReader([]byte(strings.Repeat("this is a txt content", 2))),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, _, err := Identify("", tt.args.stream)
+			if got != nil {
+				t.Errorf("no Format expected for non archive and not compressed stream: found Format= %v", got.Name())
+				return
+			}
+			if err != fmt.Errorf("no formats matched") {
+				t.Fatalf("ErrNoMatch expected for non archive and not compressed stream: err :=%#v", err)
+				return
+			}
+		})
 	}
 }
