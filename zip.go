@@ -2,6 +2,7 @@ package compressor
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -36,43 +37,48 @@ const (
 	ZipMethodXz    = 95
 )
 
-// compressedFormats is an incomplete set of file extensions with lowercase letters
-// for formats that are normally already compressed.
-// Compressing already compressed files is inefficient.
-var compressedFormats = map[string]struct{}{
-	".7z":   {},
-	".avi":  {},
-	".br":   {},
-	".bz2":  {},
-	".cab":  {},
-	".docx": {},
-	".gif":  {},
-	".gz":   {},
-	".jar":  {},
-	".jpeg": {},
-	".jpg":  {},
-	".lz":   {},
-	".lz4":  {},
-	".lzma": {},
-	".m4v":  {},
-	".mov":  {},
-	".mp3":  {},
-	".mp4":  {},
-	".mpeg": {},
-	".mpg":  {},
-	".png":  {},
-	".pptx": {},
-	".rar":  {},
-	".sz":   {},
-	".tbz2": {},
-	".tgz":  {},
-	".tsz":  {},
-	".txz":  {},
-	".xlsx": {},
-	".xz":   {},
-	".zip":  {},
-	".zipx": {},
-}
+var (
+	// headers of empty zip files might end with 0x05,0x06 or 0x06,0x06 instead of 0x03,0x04
+	zipHeader = []byte("PK\x03\x04")
+
+	// compressedFormats is an incomplete set of file extensions with lowercase letters
+	// for formats that are normally already compressed.
+	// Compressing already compressed files is inefficient.
+	compressedFormats = map[string]struct{}{
+		".7z":   {},
+		".avi":  {},
+		".br":   {},
+		".bz2":  {},
+		".cab":  {},
+		".docx": {},
+		".gif":  {},
+		".gz":   {},
+		".jar":  {},
+		".jpeg": {},
+		".jpg":  {},
+		".lz":   {},
+		".lz4":  {},
+		".lzma": {},
+		".m4v":  {},
+		".mov":  {},
+		".mp3":  {},
+		".mp4":  {},
+		".mpeg": {},
+		".mpg":  {},
+		".png":  {},
+		".pptx": {},
+		".rar":  {},
+		".sz":   {},
+		".tbz2": {},
+		".tgz":  {},
+		".tsz":  {},
+		".txz":  {},
+		".xlsx": {},
+		".xz":   {},
+		".zip":  {},
+		".zipx": {},
+	}
+)
 
 func init() {
 	RegisterFormat(Zip{}) // Not implement! In progress...
@@ -115,6 +121,25 @@ func init() {
 
 func (z Zip) Name() string {
 	return ".zip"
+}
+
+func (z Zip) Match(filename string, stream io.Reader) (MatchResult, error) {
+	var mr MatchResult
+
+	// match filename
+	if strings.Contains(strings.ToLower(filename), z.Name()) {
+		mr.ByName = true
+	}
+
+	// match file header
+	buf, err := readAtMost(stream, len(zipHeader))
+	if err != nil {
+		return mr, err
+	}
+
+	mr.ByStream = bytes.Equal(buf, zipHeader)
+
+	return mr, nil
 }
 
 func (z Zip) archiveOneFile(ctx context.Context, zw *zip.Writer, idx int, file File) error {
