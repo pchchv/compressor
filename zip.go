@@ -11,6 +11,7 @@ import (
 
 	"github.com/dsnet/compress/bzip2"
 	"github.com/klauspost/compress/zstd"
+	"github.com/pchchv/golog"
 	"github.com/ulikunitz/xz"
 )
 
@@ -140,6 +141,39 @@ func (z Zip) Match(filename string, stream io.Reader) (MatchResult, error) {
 	mr.ByStream = bytes.Equal(buf, zipHeader)
 
 	return mr, nil
+}
+
+func (z Zip) Archive(ctx context.Context, output io.Writer, files []File) error {
+	zw := zip.NewWriter(output)
+	defer zw.Close()
+
+	for i, file := range files {
+		if err := z.archiveOneFile(ctx, zw, i, file); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (z Zip) ArchiveAsync(ctx context.Context, output io.Writer, files <-chan File) error {
+	var i int
+
+	zw := zip.NewWriter(output)
+	defer zw.Close()
+
+	for file := range files {
+		if err := z.archiveOneFile(ctx, zw, i, file); err != nil {
+			if z.ContinueOnError && ctx.Err() == nil { // context errors should always abort
+				golog.Error("[ERROR] %v", err)
+				continue
+			}
+			return err
+		}
+		i++
+	}
+
+	return nil
 }
 
 func (z Zip) archiveOneFile(ctx context.Context, zw *zip.Writer, idx int, file File) error {
