@@ -5,7 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path"
 	"strings"
+	"time"
+
+	"github.com/nwaples/rardecode/v2"
 )
 
 type Rar struct {
@@ -15,6 +20,11 @@ type Rar struct {
 
 	// Password to open archives.
 	Password string
+}
+
+// rarFileInfo satisfies the fs.FileInfo interface for RAR entries.
+type rarFileInfo struct {
+	fh *rardecode.FileHeader
 }
 
 var (
@@ -57,3 +67,10 @@ func (r Rar) Match(filename string, stream io.Reader) (MatchResult, error) {
 func (r Rar) Archive(_ context.Context, _ io.Writer, _ []File) error {
 	return fmt.Errorf("not implemented because RAR is a proprietary format")
 }
+
+func (rfi rarFileInfo) Name() string       { return path.Base(rfi.fh.Name) }
+func (rfi rarFileInfo) Size() int64        { return rfi.fh.UnPackedSize }
+func (rfi rarFileInfo) Mode() os.FileMode  { return rfi.fh.Mode() }
+func (rfi rarFileInfo) ModTime() time.Time { return rfi.fh.ModificationTime }
+func (rfi rarFileInfo) IsDir() bool        { return rfi.fh.IsDir }
+func (rfi rarFileInfo) Sys() interface{}   { return nil }
