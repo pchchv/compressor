@@ -2,6 +2,8 @@ package compressor
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"io"
 	"strings"
 )
@@ -48,4 +50,10 @@ func (r Rar) Match(filename string, stream io.Reader) (MatchResult, error) {
 	mr.ByStream = matchedV1_5 || matchedV5_0
 
 	return mr, nil
+}
+
+// Archive is not implemented for RAR,
+// but the method exists so that Rar satisfies the ArchiveFormat interface.
+func (r Rar) Archive(_ context.Context, _ io.Writer, _ []File) error {
+	return fmt.Errorf("not implemented because RAR is a proprietary format")
 }
