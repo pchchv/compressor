@@ -3,14 +3,17 @@ package compressor
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"strings"
 	"time"
 
 	"github.com/nwaples/rardecode/v2"
+	"github.com/pchchv/golog"
 )
 
 type Rar struct {
@@ -66,6 +69,69 @@ func (r Rar) Match(filename string, stream io.Reader) (MatchResult, error) {
 // but the method exists so that Rar satisfies the ArchiveFormat interface.
 func (r Rar) Archive(_ context.Context, _ io.Writer, _ []File) error {
 	return fmt.Errorf("not implemented because RAR is a proprietary format")
+}
+
+func (r Rar) Extract(ctx context.Context, sourceArchive io.Reader, pathsInArchive []string, handleFile FileHandler) error {
+	var options []rardecode.Option
+
+	if r.Password != "" {
+		options = append(options, rardecode.Password(r.Password))
+	}
+
+	rr, err := rardecode.NewReader(sourceArchive, options...)
+	if err != nil {
+		return err
+	}
+
+	// important to initialize to non-nil, empty value due to how fileIsIncluded works
+	skipDirs := skipList{}
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return err // honor context cancellation
+		}
+
+		hdr, err := rr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			if r.ContinueOnError {
+				golog.Info("[ERROR] Advancing to next file in rar archive: %v", err)
+				continue
+			}
+			return err
+		}
+
+		if !fileIsIncluded(pathsInArchive, hdr.Name) {
+			continue
+		}
+
+		if fileIsIncluded(skipDirs, hdr.Name) {
+			continue
+		}
+
+		file := File{
+			FileInfo: rarFileInfo{hdr},
+			Header:   hdr,
+			FileName: hdr.Name,
+			Open:     func() (io.ReadCloser, error) { return io.NopCloser(rr), nil },
+		}
+
+		err = handleFile(ctx, file)
+		if errors.Is(err, fs.SkipDir) {
+			// if a directory, skip this path; if a file, skip the folder path
+			dirPath := hdr.Name
+			if !hdr.IsDir {
+				dirPath = path.Dir(hdr.Name) + "/"
+			}
+			skipDirs.add(dirPath)
+		} else if err != nil {
+			return fmt.Errorf("handling file: %s: %w", hdr.Name, err)
+		}
+	}
+
+	return nil
 }
 
 func (rfi rarFileInfo) Name() string       { return path.Base(rfi.fh.Name) }
