@@ -3,8 +3,11 @@ package compressor
 import (
 	"archive/tar"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"path"
 	"strings"
 
 	"github.com/pchchv/golog"
@@ -15,6 +18,13 @@ type Tar struct {
 	// will be logged and the operation will continue for the remaining files.
 	ContinueOnError bool
 }
+
+// Interface guards
+var (
+	_ Archiver  = (*Tar)(nil)
+	_ Extractor = (*Tar)(nil)
+	_ Inserter  = (*Tar)(nil)
+)
 
 func init() {
 	RegisterFormat(Tar{})
@@ -129,6 +139,67 @@ func (t Tar) Insert(ctx context.Context, into io.ReadWriteSeeker, files []File) 
 				continue
 			}
 			return fmt.Errorf("appending file %d into archive: %s: %w", i, file.Name(), err)
+		}
+	}
+
+	return nil
+}
+
+func (t Tar) Extract(ctx context.Context, sourceArchive io.Reader, pathsInArchive []string, handleFile FileHandler) error {
+	tr := tar.NewReader(sourceArchive)
+	// important to initialize to non-nil, empty value due to how fileIsIncluded works
+	skipDirs := skipList{}
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			if t.ContinueOnError && ctx.Err() == nil {
+				golog.Info("[ERROR] Advancing to next file in tar archive: %v", err)
+				continue
+			}
+			return err
+		}
+
+		if !fileIsIncluded(pathsInArchive, hdr.Name) {
+			continue
+		}
+		if fileIsIncluded(skipDirs, hdr.Name) {
+			continue
+		}
+
+		if hdr.Typeflag == tar.TypeXGlobalHeader {
+			// ignore the pax global header from git-generated tarballs
+			continue
+		}
+
+		file := File{
+			FileInfo:   hdr.FileInfo(),
+			Header:     hdr,
+			FileName:   hdr.Name,
+			LinkTarget: hdr.Linkname,
+			Open:       func() (io.ReadCloser, error) { return io.NopCloser(tr), nil },
+		}
+
+		err = handleFile(ctx, file)
+		if errors.Is(err, fs.SkipDir) {
+			// if a directory, skip this path
+			// if a file, skip the folder path
+			dirPath := hdr.Name
+
+			if hdr.Typeflag != tar.TypeDir {
+				dirPath = path.Dir(hdr.Name) + "/"
+			}
+
+			skipDirs.add(dirPath)
+		} else if err != nil {
+			return fmt.Errorf("handling file: %s: %w", hdr.Name, err)
 		}
 	}
 
