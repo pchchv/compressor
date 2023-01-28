@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/pchchv/golog"
 )
 
 type Tar struct {
@@ -36,6 +38,40 @@ func (t Tar) Match(filename string, stream io.Reader) (MatchResult, error) {
 	mr.ByStream = err == nil
 
 	return mr, nil
+}
+
+func (t Tar) Archive(ctx context.Context, output io.Writer, files []File) error {
+	tw := tar.NewWriter(output)
+	defer tw.Close()
+
+	for _, file := range files {
+		if err := t.writeFileToArchive(ctx, tw, file); err != nil {
+			if t.ContinueOnError && ctx.Err() == nil { // context errors should always abort
+				golog.Info("[ERROR] %v", err)
+				continue
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (t Tar) ArchiveAsync(ctx context.Context, output io.Writer, files <-chan File) error {
+	tw := tar.NewWriter(output)
+	defer tw.Close()
+
+	for file := range files {
+		if err := t.writeFileToArchive(ctx, tw, file); err != nil {
+			if t.ContinueOnError && ctx.Err() == nil { // context errors should always abort
+				golog.Info("[ERROR] %v", err)
+				continue
+			}
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (Tar) writeFileToArchive(ctx context.Context, tw *tar.Writer, file File) error {
