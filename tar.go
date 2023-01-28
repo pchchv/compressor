@@ -2,6 +2,8 @@ package compressor
 
 import (
 	"archive/tar"
+	"context"
+	"fmt"
 	"io"
 	"strings"
 )
@@ -34,4 +36,33 @@ func (t Tar) Match(filename string, stream io.Reader) (MatchResult, error) {
 	mr.ByStream = err == nil
 
 	return mr, nil
+}
+
+func (Tar) writeFileToArchive(ctx context.Context, tw *tar.Writer, file File) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	hdr, err := tar.FileInfoHeader(file, file.LinkTarget)
+	if err != nil {
+		return fmt.Errorf("file %s: creating header: %w", file.FileName, err)
+	}
+
+	hdr.Name = file.FileName // complete path, since FileInfoHeader() only has base name
+
+	if err := tw.WriteHeader(hdr); err != nil {
+		return fmt.Errorf("file %s: writing header: %w", file.FileName, err)
+	}
+
+	// write the file body only if it actually exists
+	// (directories and links do not have a body)
+	if hdr.Typeflag != tar.TypeReg {
+		return nil
+	}
+
+	if err := openAndCopyFile(file, tw); err != nil {
+		return fmt.Errorf("file %s: writing data: %w", file.FileName, err)
+	}
+
+	return nil
 }
