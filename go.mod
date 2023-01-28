@@ -7,4 +7,5 @@ require (
 	github.com/klauspost/compress v1.15.15
 	github.com/pchchv/golog v0.0.0-20230122220124-abc514110f10
 	github.com/ulikunitz/xz v0.5.11
+	golang.org/x/text v0.6.0
 )
