@@ -19,6 +19,7 @@ require (
 	github.com/connesc/cipherio v0.2.1 // indirect
 	github.com/hashicorp/errwrap v1.0.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
+	github.com/klauspost/pgzip v1.2.5
 	github.com/pierrec/lz4/v4 v4.1.17 // indirect
 	go4.org v0.0.0-20200411211856-f5505b9728dd // indirect
 )
