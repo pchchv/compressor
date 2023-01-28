@@ -106,7 +106,6 @@ func (r Rar) Extract(ctx context.Context, sourceArchive io.Reader, pathsInArchiv
 		if !fileIsIncluded(pathsInArchive, hdr.Name) {
 			continue
 		}
-
 		if fileIsIncluded(skipDirs, hdr.Name) {
 			continue
 		}
@@ -134,9 +133,26 @@ func (r Rar) Extract(ctx context.Context, sourceArchive io.Reader, pathsInArchiv
 	return nil
 }
 
-func (rfi rarFileInfo) Name() string       { return path.Base(rfi.fh.Name) }
-func (rfi rarFileInfo) Size() int64        { return rfi.fh.UnPackedSize }
-func (rfi rarFileInfo) Mode() os.FileMode  { return rfi.fh.Mode() }
-func (rfi rarFileInfo) ModTime() time.Time { return rfi.fh.ModificationTime }
-func (rfi rarFileInfo) IsDir() bool        { return rfi.fh.IsDir }
-func (rfi rarFileInfo) Sys() interface{}   { return nil }
+func (rfi rarFileInfo) Name() string {
+	return path.Base(rfi.fh.Name)
+}
+
+func (rfi rarFileInfo) Size() int64 {
+	return rfi.fh.UnPackedSize
+}
+
+func (rfi rarFileInfo) Mode() os.FileMode {
+	return rfi.fh.Mode()
+}
+
+func (rfi rarFileInfo) ModTime() time.Time {
+	return rfi.fh.ModificationTime
+}
+
+func (rfi rarFileInfo) IsDir() bool {
+	return rfi.fh.IsDir
+}
+
+func (rfi rarFileInfo) Sys() interface{} {
+	return nil
+}
