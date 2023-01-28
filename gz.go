@@ -1,5 +1,11 @@
 package compressor
 
+import (
+	"bytes"
+	"io"
+	"strings"
+)
+
 // Gz facilitates gzip compression.
 type Gz struct {
 	// Gzip compression level.
@@ -11,6 +17,32 @@ type Gz struct {
 	Multithreaded bool
 }
 
+// magic number at the beginning of gzip files
+var gzHeader = []byte{0x1f, 0x8b}
+
 func init() {
 	RegisterFormat(Gz{})
+}
+
+func (Gz) Name() string {
+	return ".gz"
+}
+
+func (gz Gz) Match(filename string, stream io.Reader) (MatchResult, error) {
+	var mr MatchResult
+
+	// match filename
+	if strings.Contains(strings.ToLower(filename), gz.Name()) {
+		mr.ByName = true
+	}
+
+	// match file header
+	buf, err := readAtMost(stream, len(gzHeader))
+	if err != nil {
+		return mr, err
+	}
+
+	mr.ByStream = bytes.Equal(buf, gzHeader)
+
+	return mr, nil
 }
