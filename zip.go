@@ -137,7 +137,7 @@ var (
 )
 
 func init() {
-	RegisterFormat(Zip{}) // Not implement! In progress...
+	RegisterFormat(Zip{})
 	zip.RegisterCompressor(ZipMethodBzip2, func(out io.Writer) (io.WriteCloser, error) {
 		return bzip2.NewWriter(out, &bzip2.WriterConfig{ /*TODO: Level: z.CompressionLevel*/ })
 	})
