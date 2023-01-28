@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"io"
 	"strings"
+
+	"github.com/dsnet/compress/bzip2"
 )
 
 // Bz2 facilitates bzip2 compression.
@@ -38,4 +40,14 @@ func (bz Bz2) Match(filename string, stream io.Reader) (MatchResult, error) {
 	mr.ByStream = bytes.Equal(buf, bzip2Header)
 
 	return mr, nil
+}
+
+func (bz Bz2) OpenWriter(w io.Writer) (io.WriteCloser, error) {
+	return bzip2.NewWriter(w, &bzip2.WriterConfig{
+		Level: bz.CompressionLevel,
+	})
+}
+
+func (Bz2) OpenReader(r io.Reader) (io.ReadCloser, error) {
+	return bzip2.NewReader(r, nil)
 }
