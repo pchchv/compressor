@@ -69,3 +69,16 @@ func (gz Gz) OpenWriter(w io.Writer) (io.WriteCloser, error) {
 
 	return wc, err
 }
+
+func (gz Gz) OpenReader(r io.Reader) (io.ReadCloser, error) {
+	var rc io.ReadCloser
+	var err error
+
+	if gz.Multithreaded {
+		rc, err = pgzip.NewReader(r)
+	} else {
+		rc, err = gzip.NewReader(r)
+	}
+
+	return rc, err
+}
