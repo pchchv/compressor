@@ -4,8 +4,11 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"log"
 	"path"
 	"strings"
 
@@ -271,6 +274,73 @@ func (z Zip) archiveOneFile(ctx context.Context, zw *zip.Writer, idx int, file F
 	return nil
 }
 
+// Extract extracts files from z by implementing the Extractor interface.
+// sourceArchive must be io.ReaderAt and io.Seeker, which, oddly enough,
+// are mismatched interfaces from io.Reader, which requires a method signature.
+// This signature is chosen for the interface because you can Read() from anything you can Read() or Seek().
+// Because of the nature of the zip archive format, if sourceArchive is not io.Seeker and io.ReaderAt, an error is returned.
+func (z Zip) Extract(ctx context.Context, sourceArchive io.Reader, pathsInArchive []string, handleFile FileHandler) error {
+	sra, ok := sourceArchive.(seekReaderAt)
+	if !ok {
+		return fmt.Errorf("input type must be an io.ReaderAt and io.Seeker because of zip format constraints")
+	}
+
+	size, err := streamSizeBySeeking(sra)
+	if err != nil {
+		return fmt.Errorf("determining stream size: %w", err)
+	}
+
+	zr, err := zip.NewReader(sra, size)
+	if err != nil {
+		return err
+	}
+
+	// important to initialize to non-nil, empty value due to how fileIsIncluded works
+	skipDirs := skipList{}
+
+	for i, f := range zr.File {
+		if err := ctx.Err(); err != nil {
+			return err // honor context cancellation
+		}
+
+		// ensure filename and comment are UTF-8 encoded (issue #147 and PR #305)
+		z.decodeText(&f.FileHeader)
+
+		if !fileIsIncluded(pathsInArchive, f.Name) {
+			continue
+		}
+
+		if fileIsIncluded(skipDirs, f.Name) {
+			continue
+		}
+
+		file := File{
+			FileInfo: f.FileInfo(),
+			Header:   f.FileHeader,
+			FileName: f.Name,
+			Open:     func() (io.ReadCloser, error) { return f.Open() },
+		}
+
+		err := handleFile(ctx, file)
+		if errors.Is(err, fs.SkipDir) {
+			// if a directory, skip this path; if a file, skip the folder path
+			dirPath := f.Name
+			if !file.IsDir() {
+				dirPath = path.Dir(f.Name) + "/"
+			}
+			skipDirs.add(dirPath)
+		} else if err != nil {
+			if z.ContinueOnError {
+				log.Printf("[ERROR] %s: %v", f.Name, err)
+				continue
+			}
+			return fmt.Errorf("handling file %d: %s: %w", i, f.Name, err)
+		}
+	}
+
+	return nil
+}
+
 // decodeText decodes name and comment fields from hdr to UTF-8.
 // Doesn't work if text is already encoded in UTF-8 or if z.TextEncoding is not specified.
 func (z Zip) decodeText(hdr *zip.FileHeader) {
@@ -287,6 +357,25 @@ func (z Zip) decodeText(hdr *zip.FileHeader) {
 			}
 		}
 	}
+}
+
+func streamSizeBySeeking(s io.Seeker) (int64, error) {
+	currentPosition, err := s.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0, fmt.Errorf("getting current offset: %w", err)
+	}
+
+	maxPosition, err := s.Seek(0, io.SeekEnd)
+	if err != nil {
+		return 0, fmt.Errorf("fast-forwarding to end: %w", err)
+	}
+
+	_, err = s.Seek(currentPosition, io.SeekStart)
+	if err != nil {
+		return 0, fmt.Errorf("returning to prior offset %d: %w", currentPosition, err)
+	}
+
+	return maxPosition, nil
 }
 
 // decodeText returns UTF-8 encoded text from the given charset.
