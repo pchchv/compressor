@@ -3,9 +3,15 @@ package compressor
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"path"
 	"strings"
+
+	"github.com/bodgit/sevenzip"
+	"github.com/pchchv/golog"
 )
 
 type SevenZip struct {
@@ -50,4 +56,67 @@ func (z SevenZip) Match(filename string, stream io.Reader) (MatchResult, error) 
 // but the method exists so that SevenZip satisfies the ArchiveFormat interface.
 func (z SevenZip) Archive(_ context.Context, _ io.Writer, _ []File) error {
 	return fmt.Errorf("not implemented for 7z because there is no pure Go implementation found")
+}
+
+// Extract extracts files from z by implementing the Extractor interface.
+// sourceArchive must be io.ReaderAt and io.Seeker, which, oddly enough,
+// are mismatched interfaces from io.Reader, which requires a method signature.
+// This signature is chosen for the interface because you can Read() from anything you can Read() or Seek().
+// Because of the nature of the zip archive format, if sourceArchive is not io.Seeker and io.ReaderAt, an error is returned.
+func (z SevenZip) Extract(ctx context.Context, sourceArchive io.Reader, pathsInArchive []string, handleFile FileHandler) error {
+	sra, ok := sourceArchive.(seekReaderAt)
+	if !ok {
+		return fmt.Errorf("input type must be an io.ReaderAt and io.Seeker because of zip format constraints")
+	}
+
+	size, err := streamSizeBySeeking(sra)
+	if err != nil {
+		return fmt.Errorf("determining stream size: %w", err)
+	}
+
+	zr, err := sevenzip.NewReaderWithPassword(sra, size, z.Password)
+	if err != nil {
+		return err
+	}
+
+	// important to initialize to non-nil, empty value due to how fileIsIncluded works
+	skipDirs := skipList{}
+
+	for i, f := range zr.File {
+		if err := ctx.Err(); err != nil {
+			return err // honor context cancellation
+		}
+
+		if !fileIsIncluded(pathsInArchive, f.Name) {
+			continue
+		}
+		if fileIsIncluded(skipDirs, f.Name) {
+			continue
+		}
+
+		file := File{
+			FileInfo: f.FileInfo(),
+			Header:   f.FileHeader,
+			FileName: f.Name,
+			Open:     func() (io.ReadCloser, error) { return f.Open() },
+		}
+
+		err := handleFile(ctx, file)
+		if errors.Is(err, fs.SkipDir) {
+			// if a directory, skip this path; if a file, skip the folder path
+			dirPath := f.Name
+			if !file.IsDir() {
+				dirPath = path.Dir(f.Name) + "/"
+			}
+			skipDirs.add(dirPath)
+		} else if err != nil {
+			if z.ContinueOnError {
+				golog.Info("[ERROR] %s: %v", f.Name, err)
+				continue
+			}
+			return fmt.Errorf("handling file %d: %s: %w", i, f.Name, err)
+		}
+	}
+
+	return nil
 }
