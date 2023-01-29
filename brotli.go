@@ -3,6 +3,8 @@ package compressor
 import (
 	"io"
 	"strings"
+
+	"github.com/andybalholm/brotli"
 )
 
 // Brotli facilitates brotli compression.
@@ -31,4 +33,12 @@ func (br Brotli) Match(filename string, stream io.Reader) (MatchResult, error) {
 	// and that has not yet been implemented
 
 	return mr, nil
+}
+
+func (br Brotli) OpenWriter(w io.Writer) (io.WriteCloser, error) {
+	return brotli.NewWriterLevel(w, br.Quality), nil
+}
+
+func (Brotli) OpenReader(r io.Reader) (io.ReadCloser, error) {
+	return io.NopCloser(brotli.NewReader(r)), nil
 }
