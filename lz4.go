@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"io"
 	"strings"
+
+	"github.com/pierrec/lz4/v4"
 )
 
 // Lz4 facilitates LZ4 compression.
@@ -38,4 +40,19 @@ func (lz Lz4) Match(filename string, stream io.Reader) (MatchResult, error) {
 	mr.ByStream = bytes.Equal(buf, lz4Header)
 
 	return mr, nil
+}
+
+func (lz Lz4) OpenWriter(w io.Writer) (io.WriteCloser, error) {
+	lzw := lz4.NewWriter(w)
+	options := []lz4.Option{lz4.CompressionLevelOption(lz4.CompressionLevel(lz.CompressionLevel))}
+
+	if err := lzw.Apply(options...); err != nil {
+		return nil, err
+	}
+
+	return lzw, nil
+}
+
+func (Lz4) OpenReader(r io.Reader) (io.ReadCloser, error) {
+	return io.NopCloser(lz4.NewReader(r)), nil
 }
