@@ -39,7 +39,9 @@ func init() {
 	RegisterFormat(Rar{})
 }
 
-func (Rar) Name() string { return ".rar" }
+func (Rar) Name() string {
+	return ".rar"
+}
 
 func (r Rar) Match(filename string, stream io.Reader) (MatchResult, error) {
 	var mr MatchResult

@@ -45,7 +45,9 @@ type FromDiskOptions struct {
 }
 
 // noAttrFileInfo is used to zero some file attributes.
-type noAttrFileInfo struct{ fs.FileInfo }
+type noAttrFileInfo struct {
+	fs.FileInfo
+}
 
 // skipList keeps a list of non-intersecting paths as long as its add method is used.
 // Identical items are rejected, more specific paths are replaced with broader ones,
@@ -62,7 +64,9 @@ type skipList []string
 // Any other error returned will abort the pass.
 type FileHandler func(ctx context.Context, f File) error
 
-func (f File) Stat() (fs.FileInfo, error) { return f.FileInfo, nil }
+func (f File) Stat() (fs.FileInfo, error) {
+	return f.FileInfo, nil
+}
 
 // Mode preserves only the type and permission bits.
 func (no noAttrFileInfo) Mode() fs.FileMode {
