@@ -14,6 +14,10 @@ type Zstd struct {
 	DecoderOptions []zstd.DOption
 }
 
+type errorCloser struct {
+	*zstd.Decoder
+}
+
 // magic number at the beginning of Zstandard files
 var zstdHeader = []byte{0x28, 0xb5, 0x2f, 0xfd}
 
@@ -42,4 +46,9 @@ func (zs Zstd) Match(filename string, stream io.Reader) (MatchResult, error) {
 	mr.ByStream = bytes.Equal(buf, zstdHeader)
 
 	return mr, nil
+}
+
+func (ec errorCloser) Close() error {
+	ec.Decoder.Close()
+	return nil
 }
