@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"io"
 	"strings"
+
+	"github.com/klauspost/compress/snappy"
 )
 
 // Sz facilitates Snappy compression.
@@ -36,4 +38,12 @@ func (sz Sz) Match(filename string, stream io.Reader) (MatchResult, error) {
 	mr.ByStream = bytes.Equal(buf, snappyHeader)
 
 	return mr, nil
+}
+
+func (Sz) OpenWriter(w io.Writer) (io.WriteCloser, error) {
+	return snappy.NewBufferedWriter(w), nil
+}
+
+func (Sz) OpenReader(r io.Reader) (io.ReadCloser, error) {
+	return io.NopCloser(snappy.NewReader(r)), nil
 }
