@@ -48,6 +48,19 @@ func (zs Zstd) Match(filename string, stream io.Reader) (MatchResult, error) {
 	return mr, nil
 }
 
+func (zs Zstd) OpenWriter(w io.Writer) (io.WriteCloser, error) {
+	return zstd.NewWriter(w, zs.EncoderOptions...)
+}
+
+func (zs Zstd) OpenReader(r io.Reader) (io.ReadCloser, error) {
+	zr, err := zstd.NewReader(r, zs.DecoderOptions...)
+	if err != nil {
+		return nil, err
+	}
+
+	return errorCloser{zr}, nil
+}
+
 func (ec errorCloser) Close() error {
 	ec.Decoder.Close()
 	return nil
