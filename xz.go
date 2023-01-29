@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"io"
 	"strings"
+
+	"github.com/ulikunitz/xz"
+	xxz "github.com/xi2/xz"
 )
 
 // Xz facilitates xz compression.
@@ -37,4 +40,17 @@ func (x Xz) Match(filename string, stream io.Reader) (MatchResult, error) {
 	mr.ByStream = bytes.Equal(buf, xzHeader)
 
 	return mr, nil
+}
+
+func (Xz) OpenWriter(w io.Writer) (io.WriteCloser, error) {
+	return xz.NewWriter(w)
+}
+
+func (Xz) OpenReader(r io.Reader) (io.ReadCloser, error) {
+	xr, err := xxz.NewReader(r, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	return io.NopCloser(xr), err
 }
