@@ -2,6 +2,7 @@ package compressor
 
 import (
 	"bytes"
+	"compress/zlib"
 	"io"
 	"strings"
 )
@@ -38,4 +39,18 @@ func (zz Zlib) Match(filename string, stream io.Reader) (MatchResult, error) {
 	mr.ByStream = bytes.Equal(buf, ZlibHeader)
 
 	return mr, nil
+}
+
+func (zz Zlib) OpenWriter(w io.Writer) (io.WriteCloser, error) {
+	level := zz.CompressionLevel
+
+	if level == 0 {
+		level = zlib.DefaultCompression
+	}
+
+	return zlib.NewWriterLevel(w, level)
+}
+
+func (Zlib) OpenReader(r io.Reader) (io.ReadCloser, error) {
+	return zlib.NewReader(r)
 }
