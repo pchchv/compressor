@@ -85,7 +85,7 @@ func TestIdentifyCanAssessSmallOrNoContent(t *testing.T) {
 }
 
 func TestIdentifyAndOpenZip(t *testing.T) {
-	f, err := os.Open("data/test.zip")
+	f, err := os.Open("test/test.zip")
 	checkErr(t, err, "opening zip")
 	defer f.Close()
 
@@ -114,4 +114,48 @@ func checkErr(t *testing.T, err error, msgFmt string, args ...interface{}) {
 	}
 	args = append(args, err)
 	t.Fatalf(msgFmt+": %s", args...)
+}
+
+func TestIdentifyDoesNotMatchContentFromTrimmedKnownHeaderHaving0Suffix(t *testing.T) {
+	// Using the outcome of `n, err := io.ReadFull(stream, buf)` without minding n
+	// may lead to a mis-characterization for cases with known header ending with 0x0
+	// because the default byte value in a declared array is 0.
+	// This test guards against those cases.
+	tests := []struct {
+		name   string
+		header []byte
+	}{
+		{
+			name:   "rar_v5.0",
+			header: rarHeaderV5_0,
+		},
+		{
+			name:   "rar_v1.5",
+			header: rarHeaderV1_5,
+		},
+		{
+			name:   "xz",
+			header: xzHeader,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			headerLen := len(tt.header)
+			if headerLen == 0 || tt.header[headerLen-1] != 0 {
+				t.Errorf("header expected to end with 0: header=%v", tt.header)
+				return
+			}
+			headerTrimmed := tt.header[:headerLen-1]
+			stream := bytes.NewReader(headerTrimmed)
+			got, _, err := Identify("", stream)
+			if got != nil {
+				t.Errorf("no Format expected for trimmed know %s header: found Format= %v", tt.name, got.Name())
+				return
+			}
+			if err.Error() != "no formats matched" {
+				t.Fatalf("ErrNoMatch expected for for trimmed know %s header: err :=%#v", tt.name, err)
+				return
+			}
+		})
+	}
 }
