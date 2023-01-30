@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"io/fs"
 	"math/rand"
 	"os"
 	"strings"
@@ -222,6 +223,51 @@ func TestCompression(t *testing.T) {
 			})
 		}
 	}
+}
+
+func compress(t *testing.T, compName string, content []byte, openwriter func(w io.Writer) (io.WriteCloser, error)) []byte {
+	buf := bytes.NewBuffer(make([]byte, 0, 128))
+	cwriter, err := openwriter(buf)
+	if err != nil {
+		t.Fatalf("fail to open compression writer: compression-name=%s, err=%#v", compName, err)
+		return nil
+	}
+
+	_, err = cwriter.Write(content)
+	if err != nil {
+		cerr := cwriter.Close()
+		t.Fatalf(
+			"fail to write using compression writer: compression-name=%s, err=%#v, close-err=%#v",
+			compName, err, cerr)
+		return nil
+	}
+
+	err = cwriter.Close()
+	if err != nil {
+		t.Fatalf("fail to close compression writer: compression-name=%s, err=%#v", compName, err)
+		return nil
+	}
+
+	return buf.Bytes()
+}
+
+func archive(t *testing.T, arch Archiver, fname string, fileInfo fs.FileInfo) []byte {
+	files := []File{
+		{
+			FileInfo: fileInfo, FileName: "tmp.txt",
+			Open: func() (io.ReadCloser, error) {
+				return os.Open(fname)
+			},
+		},
+	}
+	buf := bytes.NewBuffer(make([]byte, 0, 128))
+	err := arch.Archive(context.TODO(), buf, files)
+	if err != nil {
+		t.Fatalf("fail to create archive: err=%#v", err)
+		return nil
+	}
+
+	return buf.Bytes()
 }
 
 func checkErr(t *testing.T, err error, msgFmt string, args ...interface{}) {
