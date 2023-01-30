@@ -43,6 +43,20 @@ type extractedFile struct {
 
 type fakeArchiveFile struct{}
 
+// dirFile implements the fs.ReadDirFile interface.
+type dirFile struct {
+	extractedFile
+	entries     []fs.DirEntry
+	entriesRead int
+}
+
+// dirFileInfo is an implementation of fs.FileInfo that is only used for files that are directories.
+// It always returns 0 size, directory bit set in the mode, and true for IsDir.
+// It is often used as the FileInfo for dirFile values.
+type dirFileInfo struct {
+	fs.FileInfo
+}
+
 // Open opens the named file.
 func (f DirFS) Open(name string) (fs.File, error) {
 	if err := f.checkName(name, "open"); err != nil {
@@ -158,4 +172,41 @@ func (ef extractedFile) Close() error {
 		return ef.ReadCloser.Close()
 	}
 	return nil
+}
+
+// If this represents the root of the archive, we use the archive's FileInfo which says it's a file, not a directory.
+// The whole point of this package is to treat the archive as a directory, so always return true.
+func (dirFile) IsDir() bool {
+	return true
+}
+
+func (df *dirFile) ReadDir(n int) ([]fs.DirEntry, error) {
+	if n <= 0 {
+		return df.entries, nil
+	}
+
+	if df.entriesRead >= len(df.entries) {
+		return nil, io.EOF
+	}
+
+	if df.entriesRead+n > len(df.entries) {
+		n = len(df.entries) - df.entriesRead
+	}
+
+	entries := df.entries[df.entriesRead : df.entriesRead+n]
+	df.entriesRead += n
+
+	return entries, nil
+}
+
+func (dirFileInfo) Size() int64 {
+	return 0
+}
+
+func (info dirFileInfo) Mode() fs.FileMode {
+	return info.FileInfo.Mode() | fs.ModeDir
+}
+
+func (dirFileInfo) IsDir() bool {
+	return true
 }
