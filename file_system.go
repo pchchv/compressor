@@ -1,6 +1,7 @@
 package compressor
 
 import (
+	"archive/zip"
 	"context"
 	"errors"
 	"fmt"
@@ -533,6 +534,66 @@ func (f FileFS) checkName(name, op string) error {
 	}
 
 	return nil
+}
+
+// FileSystem opens a file in the root as a read-only file system.
+// The root can be a directory path, an archive file, a compressed archive file,
+// a compressed file, or any other file on disk.
+// If root is a directory, its contents are accessed directly from the disk's file system.
+// If root is an archive file, its contents are accessed as a normal directory.
+// Compressed archive files are transparently decompressed as the contents are accessed.
+// If root is any other file, it is the only file in the filesystem,
+// if the file is compressed, it is transparently decompressed as it is read from it.
+// This method essentially provides uniform read access to different file types:
+// directories, archives, compressed archives, and individual files are treated identically.
+// Except for zip files, FS return values are guaranteed to be
+// of the fs.ReadDirFS and fs.StatFS types, and can also be fs.SubFS.
+func FileSystem(ctx context.Context, root string) (fs.FS, error) {
+	info, err := os.Stat(root)
+	if err != nil {
+		return nil, err
+	}
+
+	// real folders can be easily accessed
+	if info.IsDir() {
+		return DirFS(root), nil
+	}
+
+	// if any archive formats recognize this file, access it like a folder
+	file, err := os.Open(root)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	format, _, err := Identify(filepath.Base(root), file)
+	if err != nil && !errors.Is(err, errors.New("no formats matched")) {
+		return nil, err
+	}
+
+	if format != nil {
+		switch ff := format.(type) {
+		case Zip:
+			// zip.Reader is more performant than ArchiveFS,
+			// because zip.Reader caches content information and can open several content files concurrently
+			// because of io.ReaderAt requirement while ArchiveFS can't.
+
+			// reopen the file, since the original handle will be closed when we return
+			file, err := os.Open(root)
+			if err != nil {
+				return nil, err
+			}
+
+			return zip.NewReader(file, info.Size())
+		case Archival:
+			return ArchiveFS{Path: root, Format: ff, Context: ctx}, nil
+		case Compression:
+			return FileFS{Path: root, Compression: ff}, nil
+		}
+	}
+
+	// otherwise consider it an ordinary file, create a file system with it as its only file
+	return FileFS{Path: root}, nil
 }
 
 func split(name string) (dir, elem string, isDir bool) {
