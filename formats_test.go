@@ -254,7 +254,7 @@ func compress(t *testing.T, compName string, content []byte, openwriter func(w i
 func archive(t *testing.T, arch Archiver, fname string, fileInfo fs.FileInfo) []byte {
 	files := []File{
 		{
-			FileInfo: fileInfo, FileName: "tmp.txt",
+			FileInfo: fileInfo, FileName: "temp.txt",
 			Open: func() (io.ReadCloser, error) {
 				return os.Open(fname)
 			},
@@ -268,6 +268,37 @@ func archive(t *testing.T, arch Archiver, fname string, fileInfo fs.FileInfo) []
 	}
 
 	return buf.Bytes()
+}
+
+func newTempTextFile(t *testing.T, content string) (string, fs.FileInfo) {
+	tempTxtFile, err := os.CreateTemp("", "TestIdentifyFindFormatByStreamContent-temp-*.txt")
+	if err != nil {
+		t.Fatalf("fail to create temp test file for archive tests: err=%v", err)
+		return "", nil
+	}
+	fname := tempTxtFile.Name()
+
+	if _, err = tempTxtFile.Write([]byte(content)); err != nil {
+		tempTxtFile.Close()
+		os.Remove(fname)
+		t.Fatalf("fail to write content to temp-txt-file: err=%#v", err)
+		return "", nil
+	}
+
+	if err = tempTxtFile.Close(); err != nil {
+		os.Remove(fname)
+		t.Fatalf("fail to close temp-txt-file: err=%#v", err)
+		return "", nil
+	}
+
+	fi, err := os.Stat(fname)
+	if err != nil {
+		os.Remove(fname)
+		t.Fatalf("fail to get temp-txt-file stats: err=%v", err)
+		return "", nil
+	}
+
+	return fname, fi
 }
 
 func checkErr(t *testing.T, err error, msgFmt string, args ...interface{}) {
