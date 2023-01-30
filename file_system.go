@@ -105,6 +105,20 @@ type FileFS struct {
 	Compression Decompressor // if file is compressed, setting this field will transparently decompress reads
 }
 
+// Interface guards
+var (
+	_ fs.ReadDirFS = (*DirFS)(nil)
+	_ fs.StatFS    = (*DirFS)(nil)
+	_ fs.SubFS     = (*DirFS)(nil)
+
+	_ fs.ReadDirFS = (*FileFS)(nil)
+	_ fs.StatFS    = (*FileFS)(nil)
+
+	_ fs.ReadDirFS = (*ArchiveFS)(nil)
+	_ fs.StatFS    = (*ArchiveFS)(nil)
+	_ fs.SubFS     = (*ArchiveFS)(nil)
+)
+
 // Open opens the named file.
 func (f DirFS) Open(name string) (fs.File, error) {
 	if err := f.checkName(name, "open"); err != nil {
@@ -689,6 +703,52 @@ func FileSystem(ctx context.Context, root string) (fs.FS, error) {
 	return FileFS{Path: root}, nil
 }
 
+// TopDirOpen is a special Open() function, which can be useful if the file system root was created when the archive was extracted.
+// It first tries the file name as given, but if this returns an error, it tries the name without the first path element.
+// In other words, if "a/b/c" returns an error, it will try "b/c" instead.
+// Consider an archive contains a file "a/b/c".
+// When the archive is extracted, its contents may be created without a new parent/root folder for its contents,
+// and the path of the same file outside the archive may not have an exclusive root or parent container.
+// Therefore, the file system created for the same files extracted to disk is likely to be root with respect
+// to one of the top-level files/folders from the archive, not the parent folder. For example,
+// a file known as "a/b/c" when rooted at the archive becomes "b/c" when extracted from the "a" folder on disk
+// (because no new exclusive top-level folder was created).
+// This difference in paths can make it difficult to use archives and directories uniformly.
+// Hence these TopDir* functions, which try to smooth out the difference.
+// Some extraction utilities create a container folder for the contents of the archive when extracting,
+// in which case the user can specify that path as the root path.
+// In this case these TopDir* functions are not necessary (but not harmful either).
+// They are useful primarily if you are not sure whether the root is the archive file or the extracted archive file,
+// because they will work with the same file name/path regardless of whether there is a top-level directory.
+func TopDirOpen(fsys fs.FS, name string) (fs.File, error) {
+	file, err := fsys.Open(name)
+	if err == nil {
+		return file, nil
+	}
+
+	return fsys.Open(pathWithoutTopDir(name))
+}
+
+// TopDirStat is like TopDirOpen but for Stat.
+func TopDirStat(fsys fs.FS, name string) (fs.FileInfo, error) {
+	info, err := fs.Stat(fsys, name)
+	if err == nil {
+		return info, nil
+	}
+
+	return fs.Stat(fsys, pathWithoutTopDir(name))
+}
+
+// TopDirReadDir is like TopDirOpen but for ReadDir.
+func TopDirReadDir(fsys fs.FS, name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(fsys, name)
+	if err == nil {
+		return entries, nil
+	}
+
+	return fs.ReadDir(fsys, pathWithoutTopDir(name))
+}
+
 func split(name string) (dir, elem string, isDir bool) {
 	if name[len(name)-1] == '/' {
 		isDir = true
@@ -776,4 +836,13 @@ func openReadDir(dir string, entries []File) []fs.DirEntry {
 	}
 
 	return dirs
+}
+
+func pathWithoutTopDir(fpath string) string {
+	slashIdx := strings.Index(fpath, "/")
+	if slashIdx < 0 {
+		return fpath
+	}
+
+	return fpath[slashIdx+1:]
 }
