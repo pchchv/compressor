@@ -61,6 +61,13 @@ type dirFileInfo struct {
 	fs.FileInfo
 }
 
+// compressedFile is an fs.File that specially reads from a decompression reader,
+// and which closes both that reader and the underlying file.
+type compressedFile struct {
+	*os.File
+	decomp io.ReadCloser
+}
+
 // ArchiveFS allows accessing an archive (or a compressed archive) using a consistent file system interface.
 // Essentially, it allows traversal and read the contents of an archive just like any normal directory on disk.
 // The contents of compressed archives are transparently decompressed.
@@ -442,6 +449,21 @@ func (f ArchiveFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	}
 
 	return openReadDir(name, files), nil
+}
+
+func (cf compressedFile) Read(p []byte) (int, error) {
+	return cf.decomp.Read(p)
+}
+
+func (cf compressedFile) Close() (err error) {
+	err = cf.File.Close()
+	if err == nil {
+		return cf.decomp.Close()
+	}
+
+	_ = cf.decomp.Close()
+
+	return
 }
 
 func split(name string) (dir, elem string, isDir bool) {
