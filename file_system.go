@@ -2,6 +2,7 @@ package compressor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -237,6 +238,210 @@ func (info dirFileInfo) Mode() fs.FileMode {
 
 func (dirFileInfo) IsDir() bool {
 	return true
+}
+
+// context always returns context, preferring f.Context if not nil.
+func (f ArchiveFS) context() context.Context {
+	if f.Context != nil {
+		return f.Context
+	}
+
+	return context.Background()
+}
+
+// Open opens the named file from the archive. If name is ".",
+// the archive file itself will be opened as a directory file.
+func (f ArchiveFS) Open(name string) (archiveFile fs.File, err error) {
+	var files []File
+	var found bool
+	var inputStream io.Reader = archiveFile
+
+	if !fs.ValidPath(name) {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
+	}
+
+	if f.Path != "" {
+		archiveFile, err = os.Open(f.Path)
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			// close the archive file if the extraction fails
+			if err != nil {
+				archiveFile.Close()
+			}
+		}()
+	} else if f.Stream != nil {
+		archiveFile = fakeArchiveFile{}
+	}
+
+	// apply prefix if fs is rooted in a subtree
+	name = path.Join(f.Prefix, name)
+
+	// handle special case of opening the archive root
+	if name == "." && archiveFile != nil {
+		archiveInfo, err := archiveFile.Stat()
+		if err != nil {
+			return nil, err
+		}
+
+		entries, err := f.ReadDir(name)
+		if err != nil {
+			return nil, err
+		}
+
+		return &dirFile{
+			extractedFile: extractedFile{
+				File: File{
+					FileInfo: dirFileInfo{archiveInfo},
+					FileName: ".",
+				},
+			},
+			entries: entries,
+		}, nil
+	}
+
+	// collect them all or stop at exact file match, note we don't stop at folder match
+	handler := func(_ context.Context, file File) error {
+		file.FileName = strings.Trim(file.FileName, "/")
+		files = append(files, file)
+		if file.FileName == name && !file.IsDir() {
+			found = true
+			return errors.New("stop walk")
+		}
+		return nil
+	}
+
+	if f.Stream != nil {
+		inputStream = io.NewSectionReader(f.Stream, 0, f.Stream.Size())
+	}
+
+	err = f.Format.Extract(f.context(), inputStream, []string{name}, handler)
+	if found {
+		err = nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if len(files) == 0 {
+		return nil, fs.ErrNotExist
+	}
+
+	// exactly one or exact file found, test name match to detect implicit dir name https://github.com/mholt/archiver/issues/340
+	if (len(files) == 1 && files[0].FileName == name) || found {
+		file := files[len(files)-1]
+		if file.IsDir() {
+			return &dirFile{extractedFile: extractedFile{File: file}}, nil
+		}
+
+		// if named file is not a regular file, it can't be opened
+		if !file.Mode().IsRegular() {
+			return extractedFile{File: file}, nil
+		}
+
+		// regular files can be read, so open it for reading
+		rc, err := file.Open()
+		if err != nil {
+			return nil, err
+		}
+		return extractedFile{File: file, ReadCloser: rc, parentArchive: archiveFile}, nil
+	}
+
+	// implicit files
+	files = fillImplicit(files)
+	file := search(name, files)
+	if file == nil {
+		return nil, fs.ErrNotExist
+	}
+
+	if file.IsDir() {
+		return &dirFile{extractedFile: extractedFile{File: *file}, entries: openReadDir(name, files)}, nil
+	}
+
+	// if named file is not a regular file, it can't be opened
+	if !file.Mode().IsRegular() {
+		return extractedFile{File: *file}, nil
+	}
+
+	// regular files can be read, so open it for reading
+	rc, err := file.Open()
+	if err != nil {
+		return nil, err
+	}
+
+	return extractedFile{File: *file, ReadCloser: rc, parentArchive: archiveFile}, nil
+}
+
+// ReadDir reads the named directory from within the archive.
+func (f ArchiveFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	var inputStream io.Reader
+	var archiveFile *os.File
+	var filter []string
+	var foundFile bool
+	var files []File
+	var err error
+
+	if !fs.ValidPath(name) {
+		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrInvalid}
+	}
+
+	if f.Stream == nil {
+		archiveFile, err = os.Open(f.Path)
+		if err != nil {
+			return nil, err
+		}
+		defer archiveFile.Close()
+	}
+
+	// apply prefix if fs is rooted in a subtree
+	name = path.Join(f.Prefix, name)
+
+	handler := func(_ context.Context, file File) error {
+		file.FileName = strings.Trim(file.FileName, "/")
+		files = append(files, file)
+		if file.FileName == name && !file.IsDir() {
+			foundFile = true
+			return errors.New("stop walk")
+		}
+		return nil
+	}
+
+	// handle special case of reading from root of archive
+	if name != "." {
+		filter = []string{name}
+	}
+
+	inputStream = archiveFile
+	if f.Stream != nil {
+		inputStream = io.NewSectionReader(f.Stream, 0, f.Stream.Size())
+	}
+
+	err = f.Format.Extract(f.context(), inputStream, filter, handler)
+	if foundFile {
+		return nil, &fs.PathError{Op: "readdir", Path: name, Err: errors.New("not a dir")}
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// always find all implicit directories
+	files = fillImplicit(files)
+	// and return early for dot file
+	if name == "." {
+		return openReadDir(name, files), nil
+	}
+
+	file := search(name, files)
+	if file == nil {
+		return nil, fs.ErrNotExist
+	}
+
+	if !file.IsDir() {
+		return nil, &fs.PathError{Op: "readdir", Path: name, Err: errors.New("not a dir")}
+	}
+
+	return openReadDir(name, files), nil
 }
 
 func split(name string) (dir, elem string, isDir bool) {
