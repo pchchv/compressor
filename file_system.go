@@ -5,8 +5,10 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -209,4 +211,56 @@ func (info dirFileInfo) Mode() fs.FileMode {
 
 func (dirFileInfo) IsDir() bool {
 	return true
+}
+
+func split(name string) (dir, elem string, isDir bool) {
+	if name[len(name)-1] == '/' {
+		isDir = true
+		name = name[:len(name)-1]
+	}
+
+	i := len(name) - 1
+	for i >= 0 && name[i] != '/' {
+		i--
+	}
+
+	if i < 0 {
+		return ".", name, isDir
+	}
+
+	return name[:i], name[i+1:], isDir
+}
+
+// Modified from zip.Reader initFileList, it's used to find all implicit dirs.
+func fillImplicit(files []File) []File {
+	dirs := make(map[string]bool)
+	knownDirs := make(map[string]bool)
+	entries := make([]File, 0, 0)
+
+	for _, file := range files {
+		for dir := path.Dir(file.FileName); dir != "."; dir = path.Dir(dir) {
+			dirs[dir] = true
+		}
+		entries = append(entries, file)
+		if file.IsDir() {
+			knownDirs[file.FileName] = true
+		}
+	}
+	for dir := range dirs {
+		if !knownDirs[dir] {
+			entries = append(entries, File{FileInfo: implicitDirInfo{implicitDirEntry{path.Base(dir)}}, FileName: dir})
+		}
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		fi, fj := entries[i], entries[j]
+		di, ei, _ := split(fi.FileName)
+		dj, ej, _ := split(fj.FileName)
+
+		if di != dj {
+			return di < dj
+		}
+		return ei < ej
+	})
+	return entries
 }
