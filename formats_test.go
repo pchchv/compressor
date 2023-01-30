@@ -11,6 +11,18 @@ import (
 	"time"
 )
 
+type writeNopCloser struct {
+	io.Writer
+}
+
+func (wnc writeNopCloser) Close() error {
+	return nil
+}
+
+func newWriteNopCloser(w io.Writer) (io.WriteCloser, error) {
+	return writeNopCloser{w}, nil
+}
+
 func TestRewindReader(t *testing.T) {
 	data := "the header\nthe body\n"
 
