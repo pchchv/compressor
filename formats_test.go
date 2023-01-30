@@ -225,6 +225,114 @@ func TestCompression(t *testing.T) {
 	}
 }
 
+func TestIdentifyFindFormatByStreamContent(t *testing.T) {
+	tempTxtFileName, tempTxtFileInfo := newTempTextFile(t, "this is text")
+	t.Cleanup(func() {
+		os.Remove(tempTxtFileName)
+	})
+
+	tests := []struct {
+		name                  string
+		content               []byte
+		openCompressionWriter func(w io.Writer) (io.WriteCloser, error)
+		compressorName        string
+		wantFormatName        string
+	}{
+		{
+			name:                  "should recognize bz2",
+			openCompressionWriter: Bz2{}.OpenWriter,
+			content:               []byte("this is text"),
+			compressorName:        ".bz2",
+			wantFormatName:        ".bz2",
+		},
+		{
+			name:                  "should recognize gz",
+			openCompressionWriter: Gz{}.OpenWriter,
+			content:               []byte("this is text"),
+			compressorName:        ".gz",
+			wantFormatName:        ".gz",
+		},
+		{
+			name:                  "should recognize lz4",
+			openCompressionWriter: Lz4{}.OpenWriter,
+			content:               []byte("this is text"),
+			compressorName:        ".lz4",
+			wantFormatName:        ".lz4",
+		},
+		{
+			name:                  "should recognize sz",
+			openCompressionWriter: Sz{}.OpenWriter,
+			content:               []byte("this is text"),
+			compressorName:        ".sz",
+			wantFormatName:        ".sz",
+		},
+		{
+			name:                  "should recognize xz",
+			openCompressionWriter: Xz{}.OpenWriter,
+			content:               []byte("this is text"),
+			compressorName:        ".xz",
+			wantFormatName:        ".xz",
+		},
+		{
+			name:                  "should recognize zst",
+			openCompressionWriter: Zstd{}.OpenWriter,
+			content:               []byte("this is text"),
+			compressorName:        ".zst",
+			wantFormatName:        ".zst",
+		},
+		{
+			name:                  "should recognize tar",
+			openCompressionWriter: newWriteNopCloser,
+			content:               archive(t, Tar{}, tempTxtFileName, tempTxtFileInfo),
+			compressorName:        "",
+			wantFormatName:        ".tar",
+		},
+		{
+			name:                  "should recognize tar.gz",
+			openCompressionWriter: Gz{}.OpenWriter,
+			content:               archive(t, Tar{}, tempTxtFileName, tempTxtFileInfo),
+			compressorName:        ".gz",
+			wantFormatName:        ".tar.gz",
+		},
+		{
+			name:                  "should recognize zip",
+			openCompressionWriter: newWriteNopCloser,
+			content:               archive(t, Zip{}, tempTxtFileName, tempTxtFileInfo),
+			compressorName:        "",
+			wantFormatName:        ".zip",
+		},
+		{
+			name:                  "should recognize rar by v5.0 header",
+			openCompressionWriter: newWriteNopCloser,
+			content:               rarHeaderV5_0[:],
+			compressorName:        "",
+			wantFormatName:        ".rar",
+		},
+		{
+			name:                  "should recognize rar by v1.5 header",
+			openCompressionWriter: newWriteNopCloser,
+			content:               rarHeaderV1_5[:],
+			compressorName:        "",
+			wantFormatName:        ".rar",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stream := bytes.NewReader(compress(t, tt.compressorName, tt.content, tt.openCompressionWriter))
+			got, _, err := Identify("", stream)
+			if err != nil {
+				t.Fatalf("should have found a corresponding Format: err :=%+v", err)
+				return
+			}
+			if tt.wantFormatName != got.Name() {
+				t.Errorf("unexpected format found: expected=%s actual:%s", tt.wantFormatName, got.Name())
+				return
+			}
+		})
+	}
+}
+
 func compress(t *testing.T, compName string, content []byte, openwriter func(w io.Writer) (io.WriteCloser, error)) []byte {
 	buf := bytes.NewBuffer(make([]byte, 0, 128))
 	cwriter, err := openwriter(buf)
