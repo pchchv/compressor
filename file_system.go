@@ -264,3 +264,36 @@ func fillImplicit(files []File) []File {
 	})
 	return entries
 }
+
+// modified from zip.Reader openLookup
+func search(name string, entries []File) *File {
+	dir, elem, _ := split(name)
+	i := sort.Search(len(entries), func(i int) bool {
+		idir, ielem, _ := split(entries[i].FileName)
+		return idir > dir || idir == dir && ielem >= elem
+	})
+	if i < len(entries) {
+		fname := entries[i].FileName
+		if fname == name || len(fname) == len(name)+1 && fname[len(name)] == '/' && fname[:len(name)] == name {
+			return &entries[i]
+		}
+	}
+	return nil
+}
+
+// modified from zip.Reader openReadDir
+func openReadDir(dir string, entries []File) []fs.DirEntry {
+	i := sort.Search(len(entries), func(i int) bool {
+		idir, _, _ := split(entries[i].FileName)
+		return idir >= dir
+	})
+	j := sort.Search(len(entries), func(j int) bool {
+		jdir, _, _ := split(entries[j].FileName)
+		return jdir > dir
+	})
+	dirs := make([]fs.DirEntry, j-i)
+	for idx := range dirs {
+		dirs[idx] = fs.FileInfoToDirEntry(entries[i+idx])
+	}
+	return dirs
+}
