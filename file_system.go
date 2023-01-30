@@ -7,10 +7,27 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // DirFS allows access to a directory on the disk with a serial file system interface.
 type DirFS string
+
+// implicitDirInfo is a fs.FileInfo for an implicit directory
+// (implicitDirEntry) value. This is used when the archive may
+// not contain actual entries for a directory, but we need to
+// pretend it exists so its contents can be discovered and
+// traversed.
+type implicitDirInfo struct {
+	implicitDirEntry
+}
+
+// implicitDirEntry represents a directory that does
+// not actually exist in the archive, but is inferred
+// from the paths of actual files in the archive.
+type implicitDirEntry struct {
+	name string
+}
 
 // Open opens the named file.
 func (f DirFS) Open(name string) (fs.File, error) {
@@ -64,5 +81,41 @@ func (f DirFS) checkName(name, op string) error {
 		return &fs.PathError{Op: op, Path: name, Err: fs.ErrInvalid}
 	}
 
+	return nil
+}
+
+func (e implicitDirEntry) Name() string {
+	return e.name
+}
+
+func (implicitDirEntry) IsDir() bool {
+	return true
+}
+
+func (implicitDirEntry) Type() fs.FileMode {
+	return fs.ModeDir
+}
+
+func (e implicitDirEntry) Info() (fs.FileInfo, error) {
+	return implicitDirInfo{e}, nil
+}
+
+func (d implicitDirInfo) Name() string {
+	return d.name
+}
+
+func (implicitDirInfo) Size() int64 {
+	return 0
+}
+
+func (d implicitDirInfo) Mode() fs.FileMode {
+	return d.Type()
+}
+
+func (implicitDirInfo) ModTime() time.Time {
+	return time.Time{}
+}
+
+func (implicitDirInfo) Sys() interface{} {
 	return nil
 }
