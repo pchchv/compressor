@@ -1,6 +1,7 @@
 package compressor
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -57,6 +58,31 @@ type dirFile struct {
 // It is often used as the FileInfo for dirFile values.
 type dirFileInfo struct {
 	fs.FileInfo
+}
+
+// ArchiveFS allows accessing an archive (or a compressed archive) using a consistent file system interface.
+// Essentially, it allows traversal and read the contents of an archive just like any normal directory on disk.
+// The contents of compressed archives are transparently decompressed.
+// A valid ArchiveFS value should be set either Path or Stream.
+// If Path is set, a literal file will be opened from the disk.
+// If Stream is set, new SectionReaders will be implicitly created to access the stream, providing safe concurrent access.
+//
+// Because of the Go file system APIs (see io/fs package), tArchiveFS performance when using fs.WalkDir()
+// is low for archives with lots of files.
+// The fs.WalkDir() API requires listing the contents of each directory in turn,
+// and the only way to ensure we return a complete list of folder contents is to traverse the whole archive and build a slice,
+// so if this is done for the root of an archive with many files,
+// performance tends to O(n^2) as the entire archive is walked for each folder that is enumerated (WalkDir calls ReadDir recursively).
+// If you don't want the contents of each directory to be viewed in order, prefer to call Extract() from the archive type directly,
+// this will do an O(n) view of the contents in archive order, rather than the slower directory tree order.
+type ArchiveFS struct {
+	// set one of these:
+	Path   string            // path to the archive file on disk
+	Stream *io.SectionReader // stream from which to read archive
+
+	Format  Archival        // the archive format
+	Prefix  string          // optional subdirectory in which to root the fs
+	Context context.Context // optional
 }
 
 // Open opens the named file.
@@ -272,12 +298,14 @@ func search(name string, entries []File) *File {
 		idir, ielem, _ := split(entries[i].FileName)
 		return idir > dir || idir == dir && ielem >= elem
 	})
+
 	if i < len(entries) {
 		fname := entries[i].FileName
 		if fname == name || len(fname) == len(name)+1 && fname[len(name)] == '/' && fname[:len(name)] == name {
 			return &entries[i]
 		}
 	}
+
 	return nil
 }
 
@@ -292,8 +320,10 @@ func openReadDir(dir string, entries []File) []fs.DirEntry {
 		return jdir > dir
 	})
 	dirs := make([]fs.DirEntry, j-i)
+
 	for idx := range dirs {
 		dirs[idx] = fs.FileInfoToDirEntry(entries[i+idx])
 	}
+
 	return dirs
 }
