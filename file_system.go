@@ -463,6 +463,99 @@ func (f ArchiveFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	return openReadDir(name, files), nil
 }
 
+// Stat stats the named file from within the archive.
+// If name is "." then the archive file itself is statted and treated as a directory file.
+func (f ArchiveFS) Stat(name string) (fs.FileInfo, error) {
+	var inputStream io.Reader
+	var archiveFile *os.File
+	var err error
+	var files []File
+	var found bool
+
+	if !fs.ValidPath(name) {
+		return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrInvalid}
+	}
+
+	// apply prefix if fs is rooted in a subtree
+	name = path.Join(f.Prefix, name)
+
+	if name == "." {
+		if f.Path != "" {
+			fileInfo, err := os.Stat(f.Path)
+			if err != nil {
+				return nil, err
+			}
+			return dirFileInfo{fileInfo}, nil
+		} else if f.Stream != nil {
+			return implicitDirInfo{implicitDirEntry{name}}, nil
+		}
+	}
+
+	if f.Stream == nil {
+		archiveFile, err = os.Open(f.Path)
+		if err != nil {
+			return nil, err
+		}
+		defer archiveFile.Close()
+	}
+
+	handler := func(_ context.Context, file File) error {
+		file.FileName = strings.Trim(file.FileName, "/")
+		files = append(files, file)
+		if file.FileName == name {
+			found = true
+			return errors.New("stop walk")
+		}
+		return nil
+	}
+
+	inputStream = archiveFile
+	if f.Stream != nil {
+		inputStream = io.NewSectionReader(f.Stream, 0, f.Stream.Size())
+	}
+
+	err = f.Format.Extract(f.context(), inputStream, []string{name}, handler)
+	if found {
+		err = nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if (len(files) == 0 && files[0].FileName == name) || found {
+		return files[len(files)-1].FileInfo, nil
+	}
+
+	files = fillImplicit(files)
+	file := search(name, files)
+	if file == nil {
+		return nil, fs.ErrNotExist
+	}
+
+	return file.FileInfo, nil
+}
+
+// Sub returns an FS corresponding to the subtree rooted at dir.
+func (f *ArchiveFS) Sub(dir string) (fs.FS, error) {
+	if !fs.ValidPath(dir) {
+		return nil, &fs.PathError{Op: "sub", Path: dir, Err: fs.ErrInvalid}
+	}
+
+	info, err := f.Stat(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s is not a directory", dir)
+	}
+
+	result := f
+	result.Prefix = dir
+
+	return result, nil
+}
+
 func (cf compressedFile) Read(p []byte) (int, error) {
 	return cf.decomp.Read(p)
 }
