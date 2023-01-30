@@ -2,6 +2,7 @@ package compressor
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,21 +14,20 @@ import (
 // DirFS allows access to a directory on the disk with a serial file system interface.
 type DirFS string
 
-// implicitDirInfo is a fs.FileInfo for an implicit directory
-// (implicitDirEntry) value. This is used when the archive may
-// not contain actual entries for a directory, but we need to
-// pretend it exists so its contents can be discovered and
-// traversed.
+// implicitDirInfo is a fs.FileInfo for an implicit directory (implicitDirEntry) value.
+// This is used when the archive may not contain actual entries for a directory,
+// but we need to pretend it exists so its contents can be discovered and traversed.
 type implicitDirInfo struct {
 	implicitDirEntry
 }
 
-// implicitDirEntry represents a directory that does
-// not actually exist in the archive, but is inferred
-// from the paths of actual files in the archive.
+// implicitDirEntry represents a directory that does not actually exist in the archive,
+// but is inferred from the paths of actual files in the archive.
 type implicitDirEntry struct {
 	name string
 }
+
+type fakeArchiveFile struct{}
 
 // Open opens the named file.
 func (f DirFS) Open(name string) (fs.File, error) {
@@ -117,5 +117,17 @@ func (implicitDirInfo) ModTime() time.Time {
 }
 
 func (implicitDirInfo) Sys() interface{} {
+	return nil
+}
+
+func (f fakeArchiveFile) Stat() (fs.FileInfo, error) {
+	return implicitDirInfo{implicitDirEntry{name: "."}}, nil
+}
+
+func (f fakeArchiveFile) Read([]byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (f fakeArchiveFile) Close() error {
 	return nil
 }
