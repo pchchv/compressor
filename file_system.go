@@ -93,6 +93,17 @@ type ArchiveFS struct {
 	Context context.Context // optional
 }
 
+// FileFS allows accessing a file on disk using a consistent file system interface.
+// The value should be the path to a regular file, not a directory. This file will
+// be the only entry in the file system and will be at the root of the file system.
+// It can be accessed in the file system by the name of "." or by file name.
+// If the file is compressed, set the Compression field to read from
+// the file transparently decompressed.
+type FileFS struct {
+	Path        string       // path to the file on disk
+	Compression Decompressor // if file is compressed, setting this field will transparently decompress reads
+}
+
 // Open opens the named file.
 func (f DirFS) Open(name string) (fs.File, error) {
 	if err := f.checkName(name, "open"); err != nil {
@@ -466,6 +477,64 @@ func (cf compressedFile) Close() (err error) {
 	return
 }
 
+// Open opens the named file, which must be the file used to create the file system.
+func (f FileFS) Open(name string) (fs.File, error) {
+	if err := f.checkName(name, "open"); err != nil {
+		return nil, err
+	}
+
+	file, err := os.Open(f.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	if f.Compression == nil {
+		return file, nil
+	}
+
+	r, err := f.Compression.OpenReader(file)
+	if err != nil {
+		return nil, err
+	}
+
+	return compressedFile{file, r}, nil
+}
+
+// ReadDir returns a directory listing with the file as the singular entry.
+func (f FileFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	if err := f.checkName(name, "stat"); err != nil {
+		return nil, err
+	}
+
+	info, err := f.Stat(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return []fs.DirEntry{fs.FileInfoToDirEntry(info)}, nil
+}
+
+// Stat stats the named file, which must be the file used to create the file system.
+func (f FileFS) Stat(name string) (fs.FileInfo, error) {
+	if err := f.checkName(name, "stat"); err != nil {
+		return nil, err
+	}
+
+	return os.Stat(f.Path)
+}
+
+func (f FileFS) checkName(name, op string) error {
+	if !fs.ValidPath(name) {
+		return &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
+	}
+
+	if name != "." && name != path.Base(f.Path) {
+		return &fs.PathError{Op: op, Path: name, Err: fs.ErrNotExist}
+	}
+
+	return nil
+}
+
 func split(name string) (dir, elem string, isDir bool) {
 	if name[len(name)-1] == '/' {
 		isDir = true
@@ -488,7 +557,7 @@ func split(name string) (dir, elem string, isDir bool) {
 func fillImplicit(files []File) []File {
 	dirs := make(map[string]bool)
 	knownDirs := make(map[string]bool)
-	entries := make([]File, 0, 0)
+	entries := make([]File, 0)
 
 	for _, file := range files {
 		for dir := path.Dir(file.FileName); dir != "."; dir = path.Dir(dir) {
