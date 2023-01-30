@@ -27,6 +27,20 @@ type implicitDirEntry struct {
 	name string
 }
 
+// extractedFile implements fs.File, thus it represents an "opened" file,
+// slightly different from the File type representing a file that can possibly be opened.
+// If the file is actually opened,
+// this type ensures that the parent archive is closed when this file from it is also closed.
+type extractedFile struct {
+	File
+
+	// Set these fields if a "regular file" which has actual readable content.
+	// ReadCloser should be the file's reader, and parentArchive is a reference to the archive the files comes out of.
+	// If parentArchive is set, it will also be closed along with the file when Close() is called.
+	io.ReadCloser
+	parentArchive io.Closer
+}
+
 type fakeArchiveFile struct{}
 
 // Open opens the named file.
@@ -129,5 +143,19 @@ func (f fakeArchiveFile) Read([]byte) (int, error) {
 }
 
 func (f fakeArchiveFile) Close() error {
+	return nil
+}
+
+// Close closes the the current file if it is open and the parent archive if specified.
+// For directories that do not specify these fields, this does not work.
+func (ef extractedFile) Close() error {
+	if ef.parentArchive != nil {
+		if err := ef.parentArchive.Close(); err != nil {
+			return err
+		}
+	}
+	if ef.ReadCloser != nil {
+		return ef.ReadCloser.Close()
+	}
 	return nil
 }
