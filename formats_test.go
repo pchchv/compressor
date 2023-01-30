@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"math/rand"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRewindReader(t *testing.T) {
@@ -107,15 +109,6 @@ func TestIdentifyAndOpenZip(t *testing.T) {
 	checkErr(t, err, "extracting zip")
 }
 
-func checkErr(t *testing.T, err error, msgFmt string, args ...interface{}) {
-	t.Helper()
-	if err == nil {
-		return
-	}
-	args = append(args, err)
-	t.Fatalf(msgFmt+": %s", args...)
-}
-
 func TestIdentifyDoesNotMatchContentFromTrimmedKnownHeaderHaving0Suffix(t *testing.T) {
 	// Using the outcome of `n, err := io.ReadFull(stream, buf)` without minding n
 	// may lead to a mis-characterization for cases with known header ending with 0x0
@@ -138,6 +131,7 @@ func TestIdentifyDoesNotMatchContentFromTrimmedKnownHeaderHaving0Suffix(t *testi
 			header: xzHeader,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			headerLen := len(tt.header)
@@ -145,6 +139,7 @@ func TestIdentifyDoesNotMatchContentFromTrimmedKnownHeaderHaving0Suffix(t *testi
 				t.Errorf("header expected to end with 0: header=%v", tt.header)
 				return
 			}
+
 			headerTrimmed := tt.header[:headerLen-1]
 			stream := bytes.NewReader(headerTrimmed)
 			got, _, err := Identify("", stream)
@@ -158,4 +153,70 @@ func TestIdentifyDoesNotMatchContentFromTrimmedKnownHeaderHaving0Suffix(t *testi
 			}
 		})
 	}
+}
+
+func TestCompression(t *testing.T) {
+	seed := time.Now().UnixNano()
+	t.Logf("seed: %d", seed)
+	r := rand.New(rand.NewSource(seed))
+
+	contents := make([]byte, 1024)
+	r.Read(contents)
+
+	compressed := new(bytes.Buffer)
+
+	testOK := func(t *testing.T, comp Compression, testFilename string) {
+		// compress into buffer
+		compressed.Reset()
+		wc, err := comp.OpenWriter(compressed)
+		checkErr(t, err, "opening writer")
+		_, err = wc.Write(contents)
+		checkErr(t, err, "writing contents")
+		checkErr(t, wc.Close(), "closing writer")
+
+		// check that Identify chooses this compression method correctly
+		format, stream, err := Identify(testFilename, compressed)
+		checkErr(t, err, "identifying")
+		if format.Name() != comp.Name() {
+			t.Fatalf("expected format %s but got %s", comp.Name(), format.Name())
+		}
+
+		// read the contents back out and compare
+		decompReader, err := format.(Decompressor).OpenReader(stream)
+		checkErr(t, err, "opening with decompressor '%s'", format.Name())
+		data, err := io.ReadAll(decompReader)
+		checkErr(t, err, "reading decompressed data")
+		checkErr(t, decompReader.Close(), "closing decompressor")
+		if !bytes.Equal(data, contents) {
+			t.Fatalf("not equal to original")
+		}
+	}
+
+	cannotIdentifyFromStream := map[string]bool{Brotli{}.Name(): true}
+
+	for _, f := range formats {
+		// only test compressors
+		comp, ok := f.(Compression)
+		if !ok {
+			continue
+		}
+
+		t.Run(f.Name()+"_with_extension", func(t *testing.T) {
+			testOK(t, comp, "file"+f.Name())
+		})
+		if !cannotIdentifyFromStream[f.Name()] {
+			t.Run(f.Name()+"_without_extension", func(t *testing.T) {
+				testOK(t, comp, "")
+			})
+		}
+	}
+}
+
+func checkErr(t *testing.T, err error, msgFmt string, args ...interface{}) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	args = append(args, err)
+	t.Fatalf(msgFmt+": %s", args...)
 }
